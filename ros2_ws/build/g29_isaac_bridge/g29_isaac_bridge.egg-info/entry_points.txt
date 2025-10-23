@@ -1,0 +1,3 @@
+[console_scripts]
+g29_steering_node = g29_isaac_bridge.g29_steering_node:main
+

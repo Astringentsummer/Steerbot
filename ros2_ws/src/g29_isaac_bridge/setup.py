@@ -1,0 +1,20 @@
+from setuptools import setup
+
+package_name = 'g29_isaac_bridge'
+
+setup(
+    name=package_name,
+    version='0.0.1',
+    packages=[package_name],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='students_steeringwheel',
+    maintainer_email='xiajiongxu@outlook.com',
+    description='ROS2 Humble node: publish Logitech G29 steering angle to /wheel/steering_angle',
+    license='MIT',
+    entry_points={
+        'console_scripts': [
+            'g29_steering_node = g29_isaac_bridge.g29_steering_node:main',
+        ],
+    },
+)

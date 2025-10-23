@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: g29-isaac-bridge
+Version: 0.0.1
+Summary: ROS2 Humble node: publish Logitech G29 steering angle to /wheel/steering_angle
+Home-page: UNKNOWN
+Maintainer: students_steeringwheel
+Maintainer-email: xiajiongxu@outlook.com
+License: MIT
+Platform: UNKNOWN
+
+UNKNOWN
+
