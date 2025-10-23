@@ -20,7 +20,7 @@ class G29SteeringPublisher(Node):
         if len(msg.axes) > 0:
             axes_value = msg.axes[0]  # left/right steering axis
             # Convert normalized (-1..1) to radians
-            steering_angle_rad = axes_value * self.max_angle_deg * math.pi / 180.0
+            steering_angle_rad = -axes_value * self.max_angle_deg * math.pi / 180.0
             # Publish to topic
             self.publisher.publish(Float32(data=steering_angle_rad))
 
