@@ -1,0 +1,65 @@
+[0.199s] Invoking command in '/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo': CMAKE_PREFIX_PATH=/opt/ros/humble PS1=(ros2_env) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ VIRTUAL_ENV_PROMPT=(ros2_env) /usr/bin/cmake /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/src/piper_ros/src/piper_sim/piper_gazebo -DCMAKE_INSTALL_PREFIX=/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo
+[0.205s] [0mCMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
+[0.205s]   Compatibility with CMake < 3.10 will be removed from a future version of
+[0.205s]   CMake.
+[0.205s] 
+[0.206s]   Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+[0.206s]   to tell CMake that the project requires at least <min> but has been updated
+[0.206s]   to work with policies introduced by <max> or earlier.
+[0.206s] 
+[0.206s] [0m
+[0.231s] -- The C compiler identification is GNU 11.4.0
+[0.270s] -- The CXX compiler identification is GNU 11.4.0
+[0.275s] -- Detecting C compiler ABI info
+[0.308s] -- Detecting C compiler ABI info - done
+[0.316s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.317s] -- Detecting C compile features
+[0.317s] -- Detecting C compile features - done
+[0.323s] -- Detecting CXX compiler ABI info
+[0.366s] -- Detecting CXX compiler ABI info - done
+[0.374s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.374s] -- Detecting CXX compile features
+[0.375s] -- Detecting CXX compile features - done
+[0.379s] -- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.434s] -- Found Python3: /home/students_steeringwheel/ros2_env/bin/python3 (found version "3.10.12") found components: Interpreter
+[0.484s] -- Found ament_lint_auto: 0.12.14 (/opt/ros/humble/share/ament_lint_auto/cmake)
+[0.536s] -- Added test 'copyright' to check source files copyright and LICENSE
+[0.537s] -- Added test 'flake8' to check Python code syntax and style conventions
+[0.538s] -- Added test 'lint_cmake' to check CMake code style
+[0.538s] -- Added test 'pep257' to check Python code against some of the docstring style conventions in PEP 257
+[0.539s] -- Added test 'xmllint' to check XML markup files
+[0.539s] -- Configuring done (0.3s)
+[0.542s] -- Generating done (0.0s)
+[0.542s] -- Build files have been written to: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo
+[0.545s] Invoked command in '/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble PS1=(ros2_env) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ VIRTUAL_ENV_PROMPT=(ros2_env) /usr/bin/cmake /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/src/piper_ros/src/piper_sim/piper_gazebo -DCMAKE_INSTALL_PREFIX=/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo
+[0.546s] Invoking command in '/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo': CMAKE_PREFIX_PATH=/opt/ros/humble PS1=(ros2_env) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ VIRTUAL_ENV_PROMPT=(ros2_env) /usr/bin/cmake --build /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo -- -j32 -l32
+[0.559s] Invoked command in '/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble PS1=(ros2_env) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ VIRTUAL_ENV_PROMPT=(ros2_env) /usr/bin/cmake --build /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo -- -j32 -l32
+[0.559s] Invoking command in '/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo': CMAKE_PREFIX_PATH=/opt/ros/humble PS1=(ros2_env) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ VIRTUAL_ENV_PROMPT=(ros2_env) /usr/bin/cmake --install /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo
+[0.561s] -- Install configuration: ""
+[0.561s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/launch
+[0.561s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/launch/piper_with_gripper
+[0.561s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/launch/piper_with_gripper/piper_gazebo.launch.py
+[0.561s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/launch/piper_no_gripper
+[0.561s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/launch/piper_no_gripper/piper_no_gripper_gazebo.launch.py
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/config
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/config/ros2_controllers.yaml
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/config/ros2_no_gripper_controllers.yaml
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/scripts
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/scripts/joint8_ctrl.py
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/lib/piper_gazebo/joint8_ctrl.py
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/ament_index/resource_index/package_run_dependencies/piper_gazebo
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/ament_index/resource_index/parent_prefix_path/piper_gazebo
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/environment/ament_prefix_path.sh
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/environment/ament_prefix_path.dsv
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/environment/path.sh
+[0.562s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/environment/path.dsv
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/local_setup.bash
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/local_setup.sh
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/local_setup.zsh
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/local_setup.dsv
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/package.dsv
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/ament_index/resource_index/packages/piper_gazebo
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/cmake/piper_gazeboConfig.cmake
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/cmake/piper_gazeboConfig-version.cmake
+[0.563s] -- Installing: /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/install/piper_gazebo/share/piper_gazebo/package.xml
+[0.564s] Invoked command in '/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble PS1=(ros2_env) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ VIRTUAL_ENV_PROMPT=(ros2_env) /usr/bin/cmake --install /home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_gazebo

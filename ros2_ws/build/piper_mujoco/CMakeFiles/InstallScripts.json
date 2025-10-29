@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/build/piper_mujoco/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
