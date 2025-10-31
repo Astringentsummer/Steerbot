@@ -1,8 +1,0 @@
-{
-  "package_name": "piper_msgs",
-  "non_idl_tuples": [
-    "/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/src/piper_ros/src/piper_msgs:msg/PiperStatusMsg.msg",
-    "/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/src/piper_ros/src/piper_msgs:msg/PosCmd.msg",
-    "/home/students_steeringwheel/Steeringwheel-Workspace/ros2_ws/src/piper_ros/src/piper_msgs:srv/Enable.srv"
-  ]
-}
