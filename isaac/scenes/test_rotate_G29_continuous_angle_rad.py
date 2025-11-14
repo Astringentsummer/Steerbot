@@ -1,19 +1,19 @@
 import omni
-import math, time
+import math
+import time
 from pxr import UsdPhysics
 
 stage = omni.usd.get_context().get_stage()
 joint = UsdPhysics.RevoluteJoint.Get(stage, "/G29_root/RevoluteJoint")
 drive = UsdPhysics.DriveAPI(joint.GetPrim(), "angular")
 
-print("Simulating G29 input... press Ctrl+C to stop")
+fake_data = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.26, 0.20, 0.10, 0.0]
 
-t = 0.0
-try:
-    while True:
-        angle_rad = math.sin(t) * math.radians(90) 
-        drive.CreateTargetPositionAttr(angle_rad * 180.0 / math.pi)
-        time.sleep(0.05)
-        t += 0.1
-except KeyboardInterrupt:
-    print("Simulation stopped.")
+print("Simulating received ROS steering data...")
+
+for rad in fake_data:
+    deg = rad * 180.0 / math.pi
+    drive.CreateTargetPositionAttr(deg)
+    print(f"Updated wheel rotation: {deg:.2f}°")
+    time.sleep(0.2)
+
