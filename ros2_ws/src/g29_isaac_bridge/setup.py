@@ -6,7 +6,7 @@ setup(
     name=package_name,
     version='0.0.1',
     packages=[package_name],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'evdev'],
     zip_safe=True,
     maintainer='students_steeringwheel',
     maintainer_email='xiajiongxu@outlook.com',
@@ -15,6 +15,8 @@ setup(
     entry_points={
         'console_scripts': [
             'g29_steering_node = g29_isaac_bridge.g29_steering_node:main',
+            'g29_ff = g29_isaac_bridge.g29_ff:main',
+            'g29_position_controller = g29_isaac_bridge.g29_position_controller:main',
         ],
     },
 )
