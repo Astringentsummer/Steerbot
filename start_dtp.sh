@@ -1,8 +1,3 @@
-#!/bin/bash
-# ==========================================
-# ROS2 MoveIt + Controller Launcher Script
-# ==========================================
-
 set -e
 
 # Standardwerte
