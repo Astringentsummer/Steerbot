@@ -64,7 +64,7 @@ echo "Starte MoveIt DT..."
 start_terminal "cd ~/Steerbot/ros2_ws; \
   source /opt/ros/humble/setup.bash; \
   source install/setup.bash; \
-  ros2 launch piper_no_gripper_moveit moveit_dt.launch.py use_sim_time:=${use_sim_time}"
+  ros2 launch piper_with_gripper_moveit moveit_dt_gripper.launch.py use_sim_time:=${use_sim_time}"
 
 sleep 3
 

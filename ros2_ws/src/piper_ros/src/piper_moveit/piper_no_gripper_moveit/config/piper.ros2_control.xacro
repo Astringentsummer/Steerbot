@@ -22,7 +22,6 @@
         </hardware>
       </xacro:if>
       <xacro:unless value="${fake_hardware}">
-        <!-- ECHTE HW: hier später echten Treiber eintragen -->
         <hardware>
           <!-- TODO: richtigen Plugin-Namen für die reale Piper-HW einsetzen -->
           <plugin>your_real_hardware_plugin/Driver</plugin>

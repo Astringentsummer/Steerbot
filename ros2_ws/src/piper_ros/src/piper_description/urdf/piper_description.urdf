@@ -486,16 +486,14 @@
     <origin
       xyz="0 0 0.1358"
       rpy="1.5708 0 -3.1416" />
-    <parent
-      link="gripper_base" />
-    <child
-      link="link8" />
-    <axis
-      xyz="0 0 -1" />
-    <limit
-      lower="-0.035"
-      upper="0"
-      effort="10"
-      velocity="1" />
+    <parent link="gripper_base" />
+    <child  link="link8" />
+    <!-- gleiche Achse wie joint7 -->
+    <axis xyz="0 0 1" />
+    <!-- Bereich gespiegelt zu joint7 -->
+    <limit lower="-0.035" upper="0" effort="10" velocity="1" />
+    <!-- joint8 folgt joint7 spiegelverkehrt -->
+    <mimic joint="joint7" multiplier="-1" offset="0" />
   </joint>
+
 </robot>
