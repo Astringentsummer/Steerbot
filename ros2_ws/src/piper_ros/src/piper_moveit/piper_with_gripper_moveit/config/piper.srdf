@@ -19,7 +19,6 @@
     
     <group name="gripper">
       <joint name="joint7"/>
-      <joint name="joint8"/>
     </group>
 
     <end_effector name="gripper" parent_link="link6" group="gripper" parent_group="arm"/>

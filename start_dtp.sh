@@ -56,7 +56,7 @@ echo "Starte Controller Bringup..."
 start_terminal "cd ~/Steerbot/ros2_ws; \
   source /opt/ros/humble/setup.bash; \
   source install/setup.bash; \
-  ros2 launch piper_no_gripper_moveit controller_bringup.launch.py fake_hardware:=${fake_hardware}"
+  ros2 launch piper_with_gripper_moveit controller_bringup_gripper.launch.py fake_hardware:=${fake_hardware}"
 
 sleep 6
 

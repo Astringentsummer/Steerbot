@@ -1,10 +1,8 @@
 from launch import LaunchDescription
 from launch.actions import (
     TimerAction,
-    RegisterEventHandler,
     DeclareLaunchArgument,
 )
-from launch.event_handlers import OnProcessExit
 from launch.substitutions import (
     PathJoinSubstitution,
     TextSubstitution,
@@ -87,14 +85,13 @@ def generate_launch_description():
         output="screen",
     )
 
+    # 1) Nach 1.0s joint_state_broadcaster
     jsb_delayed = TimerAction(period=1.0, actions=[jsb_spawner])
-    arm_and_gripper_after_jsb = RegisterEventHandler(
-        OnProcessExit(
-            target_action=jsb_spawner,
-            on_exit=[
-                TimerAction(period=0.5, actions=[arm_spawner, gripper_spawner])
-            ],
-        )
+
+    # 2) Nach 2.0s arm + gripper
+    arm_and_gripper_delayed = TimerAction(
+        period=2.0,
+        actions=[arm_spawner, gripper_spawner],
     )
 
     return LaunchDescription(
@@ -105,7 +102,7 @@ def generate_launch_description():
             rsp,
             ros2_control_node,
             jsb_delayed,
-            arm_and_gripper_after_jsb,
+            arm_and_gripper_delayed,
         ]
     )
 
