@@ -14,7 +14,7 @@ int main(int argc, char** argv)
   std::string group_name = node->declare_parameter<std::string>("move_group_name", "arm");
   RCLCPP_INFO(node->get_logger(), "Using MoveIt group: %s", group_name.c_str());
 
-  std::this_thread::sleep_for(2s);
+  std::this_thread::sleep_for(1s);
 
   moveit::planning_interface::MoveGroupInterface move_group(node, group_name);
   move_group.setPlanningTime(5.0);

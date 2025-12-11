@@ -27,11 +27,22 @@ def generate_launch_description():
         [pkg_share, "config", "ros2_controllers.yaml"]
     )
 
+    # gemeinsame Parameter: Sim-Zeit aus /clock verwenden
+    common_params = [
+        {"use_sim_time": True},
+    ]
+
     # robot_state_publisher
+    # ignore_timestamp: JointState-Header von Isaac ignorieren,
+    # aktuelle (Sim-)Zeit verwenden -> weniger TF_OLD_DATA / "moved backwards in time"
     rsp = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
-        parameters=[moveit_config.robot_description],
+        parameters=[
+            *common_params,
+            {"ignore_timestamp": True},
+            moveit_config.robot_description,
+        ],
         output="screen",
     )
 
@@ -40,8 +51,10 @@ def generate_launch_description():
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[
+            *common_params,
             moveit_config.robot_description,
             controllers_yaml,
+            {"fake_hardware": fake_hw},  # nutzt dein Launch-Argument
         ],
         output="screen",
     )
@@ -105,4 +118,3 @@ def generate_launch_description():
             arm_and_gripper_delayed,
         ]
     )
-

@@ -15,11 +15,20 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("piper_with_gripper_moveit")
     rviz_config = PathJoinSubstitution([pkg_share, "config", "moveit.rviz"])
 
+    # Gemeinsame Parameter: Sim-Zeit
+    common_params = [
+        {"use_sim_time": True},
+    ]
+
     # robot_state_publisher mit URDF in /robot_description
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
-        parameters=[moveit_config.robot_description],
+        parameters=[
+            *common_params,
+            {"ignore_timestamp": True},
+            moveit_config.robot_description,
+        ],
         output="screen",
     )
 
@@ -28,7 +37,10 @@ def generate_launch_description():
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
-        parameters=[moveit_config.to_dict()],
+        parameters=[
+            *common_params,
+            moveit_config.to_dict(),
+        ],
     )
 
     # RViz mit KINEMATICS + PLANNING + TRAJECTORY
@@ -38,6 +50,7 @@ def generate_launch_description():
         output="screen",
         arguments=["-d", rviz_config],
         parameters=[
+            *common_params,
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
             moveit_config.robot_description_kinematics,
@@ -53,4 +66,3 @@ def generate_launch_description():
             rviz,
         ]
     )
-
