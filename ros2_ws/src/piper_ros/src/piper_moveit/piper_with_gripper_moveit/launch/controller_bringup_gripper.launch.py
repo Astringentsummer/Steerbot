@@ -1,20 +1,20 @@
 from launch import LaunchDescription
-from launch.actions import (
-    TimerAction,
-    DeclareLaunchArgument,
-)
-from launch.substitutions import (
-    PathJoinSubstitution,
-    TextSubstitution,
-    LaunchConfiguration,
-)
+from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
-    fake_hw = LaunchConfiguration("fake_hardware")
+
+    fake_hardware = LaunchConfiguration("fake_hardware")
+
+    DeclareLaunchArgument(
+        "fake_hardware",
+        default_value="true",
+        description="Use fake ros2_control hardware"
+    )
 
     moveit_config = (
         MoveItConfigsBuilder("piper", package_name="piper_with_gripper_moveit")
@@ -27,92 +27,84 @@ def generate_launch_description():
         [pkg_share, "config", "ros2_controllers.yaml"]
     )
 
-    # gemeinsame Parameter: Sim-Zeit aus /clock verwenden
-    common_params = [
-        {"use_sim_time": True},
-    ]
-
-    # robot_state_publisher
-    # ignore_timestamp: JointState-Header von Isaac ignorieren,
-    # aktuelle (Sim-)Zeit verwenden -> weniger TF_OLD_DATA / "moved backwards in time"
     rsp = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
+        output="screen",
         parameters=[
-            *common_params,
+            {"use_sim_time": True},
             {"ignore_timestamp": True},
             moveit_config.robot_description,
         ],
-        output="screen",
     )
 
-    # ros2_control_node
     ros2_control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
+        output="screen",
         parameters=[
-            *common_params,
+            {"use_sim_time": True},              
             moveit_config.robot_description,
             controllers_yaml,
-            {"fake_hardware": fake_hw},  # nutzt dein Launch-Argument
+            {"fake_hardware": fake_hardware},
         ],
-        output="screen",
     )
 
-    # spawner joint_state_broadcaster
-    jsb_spawner = Node(
+    joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        name="spawner_joint_state_broadcaster",
         arguments=[
             "joint_state_broadcaster",
             "--controller-manager",
             "/controller_manager",
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen",
     )
 
-    # spawner arm_controller
-    arm_spawner = Node(
+    arm_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        name="spawner_arm_controller",
         arguments=[
             "arm_controller",
             "--controller-manager",
             "/controller_manager",
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen",
     )
 
-    # spawner gripper_controller
-    gripper_spawner = Node(
+    gripper_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        name="spawner_gripper_controller",
         arguments=[
             "gripper_controller",
             "--controller-manager",
             "/controller_manager",
         ],
+        parameters=[{"use_sim_time": True}],
         output="screen",
     )
 
-    # 1) Nach 1.0s joint_state_broadcaster
-    jsb_delayed = TimerAction(period=1.0, actions=[jsb_spawner])
-
-    # 2) Nach 2.0s arm + gripper
-    arm_and_gripper_delayed = TimerAction(
-        period=2.0,
-        actions=[arm_spawner, gripper_spawner],
+    jsb_delayed = TimerAction(
+        period=1.0,
+        actions=[joint_state_broadcaster_spawner],
     )
 
+    arm_and_gripper_delayed = TimerAction(
+        period=2.0,
+        actions=[
+            arm_controller_spawner,
+            gripper_controller_spawner,
+        ],
+    )
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "fake_hardware", default_value=TextSubstitution(text="true")
+                "fake_hardware",
+                default_value="true",
             ),
-            rsp,
+            # rsp,
             ros2_control_node,
             jsb_delayed,
             arm_and_gripper_delayed,

@@ -32,11 +32,13 @@ gripper_controller:
   ros__parameters:
     joints:
       - joint7
+      - joint8
     command_interfaces:
       - position
     state_interfaces:
       - position
       - velocity
+    allow_partial_joints_goal: true
 joint_state_broadcaster:
   ros__parameters:
     publish_topic: "/joint_states"

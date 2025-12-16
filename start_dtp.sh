@@ -53,7 +53,7 @@ terminal_pids=()
 
 # --- STARTS ---
 echo "Starte Controller Bringup..."
-start_terminal "cd ~/Steerbot/ros2_ws; \
+start_terminal "cd ~/Steeringwheel-Workspace/ros2_ws; \
   source /opt/ros/humble/setup.bash; \
   source install/setup.bash; \
   ros2 launch piper_with_gripper_moveit controller_bringup_gripper.launch.py fake_hardware:=${fake_hardware}"
@@ -61,7 +61,7 @@ start_terminal "cd ~/Steerbot/ros2_ws; \
 sleep 6
 
 echo "Starte MoveIt DT..."
-start_terminal "cd ~/Steerbot/ros2_ws; \
+start_terminal "cd ~/Steeringwheel-Workspace/ros2_ws; \
   source /opt/ros/humble/setup.bash; \
   source install/setup.bash; \
   ros2 launch piper_with_gripper_moveit moveit_dt_gripper.launch.py use_sim_time:=${use_sim_time}"
