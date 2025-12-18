@@ -10,6 +10,9 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(control_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -30,8 +33,18 @@ ament_target_dependencies(piper_demo_node
   moveit_ros_planning_interface
 )
 
+add_executable(piper_pick_place_node src/piper_pick_place_node.cpp)
+ament_target_dependencies(piper_pick_place_node
+  rclcpp
+  rclcpp_action
+  moveit_ros_planning_interface
+  control_msgs
+  trajectory_msgs
+)
+
 install(TARGETS
   piper_demo_node
+  piper_pick_place_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
