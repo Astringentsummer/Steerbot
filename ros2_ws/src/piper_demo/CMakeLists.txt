@@ -42,9 +42,19 @@ ament_target_dependencies(piper_pick_place_node
   trajectory_msgs
 )
 
+add_executable(piper_grab_rotate_node src/piper_grab_rotate_node.cpp)
+ament_target_dependencies(piper_grab_rotate_node
+  rclcpp
+  moveit_ros_planning_interface
+  geometry_msgs
+  tf2
+  tf2_geometry_msgs
+)
+
 install(TARGETS
   piper_demo_node
   piper_pick_place_node
+  piper_grab_rotate_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
