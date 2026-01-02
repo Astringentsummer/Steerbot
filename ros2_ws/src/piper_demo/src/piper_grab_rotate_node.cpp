@@ -3,44 +3,74 @@
 
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <moveit_msgs/msg/robot_trajectory.hpp>
+
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <chrono>
 #include <thread>
 #include <map>
-
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <string>
+#include <vector>
+#include <cmath>
 
 using namespace std::chrono_literals;
 
-static bool plan_and_execute_pose(moveit::planning_interface::MoveGroupInterface& arm,
-                                 const geometry_msgs::msg::PoseStamped& pose,
-                                 const std::string& ee_link,
-                                 rclcpp::Logger logger)
+// -------------------------
+// Generic helpers
+// -------------------------
+static bool planAndExecutePose(moveit::planning_interface::MoveGroupInterface& group,
+                              const geometry_msgs::msg::PoseStamped& target,
+                              const std::string& ee_link,
+                              rclcpp::Logger logger)
 {
-  arm.setStartStateToCurrentState();
-  arm.clearPoseTargets();
-  arm.setPoseTarget(pose, ee_link);
+  group.setStartStateToCurrentState();
+  group.clearPoseTargets();
+  group.setPoseTarget(target, ee_link);
 
   moveit::planning_interface::MoveGroupInterface::Plan plan;
-  auto res = arm.plan(plan);
-  if (res == moveit::core::MoveItErrorCode::SUCCESS)
+  if (group.plan(plan) != moveit::core::MoveItErrorCode::SUCCESS)
   {
-    auto exec_res = arm.execute(plan);
-    if (exec_res != moveit::core::MoveItErrorCode::SUCCESS)
-    {
-      RCLCPP_WARN(logger, "Execution failed.");
-      return false;
-    }
-    return true;
+    RCLCPP_WARN(logger, "Planning failed (pose).");
+    return false;
   }
 
-  RCLCPP_WARN(logger, "Planning failed.");
-  return false;
+  if (group.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS)
+  {
+    RCLCPP_WARN(logger, "Execution failed (pose).");
+    return false;
+  }
+
+  return true;
 }
 
-static void move_gripper(moveit::planning_interface::MoveGroupInterface& gripper,
-                         const std::map<std::string, double>& target,
-                         rclcpp::Logger logger)
+static bool planAndExecuteJoints(moveit::planning_interface::MoveGroupInterface& group,
+                                const std::map<std::string, double>& joints,
+                                rclcpp::Logger logger)
+{
+  group.setStartStateToCurrentState();
+  group.clearPoseTargets();
+  group.setJointValueTarget(joints);
+
+  moveit::planning_interface::MoveGroupInterface::Plan plan;
+  if (group.plan(plan) != moveit::core::MoveItErrorCode::SUCCESS)
+  {
+    RCLCPP_WARN(logger, "Planning failed (joints).");
+    return false;
+  }
+
+  if (group.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS)
+  {
+    RCLCPP_WARN(logger, "Execution failed (joints).");
+    return false;
+  }
+
+  return true;
+}
+
+static void sendGripper(moveit::planning_interface::MoveGroupInterface& gripper,
+                        const std::map<std::string, double>& target,
+                        rclcpp::Logger logger)
 {
   gripper.setStartStateToCurrentState();
   gripper.setJointValueTarget(target);
@@ -48,77 +78,99 @@ static void move_gripper(moveit::planning_interface::MoveGroupInterface& gripper
   RCLCPP_INFO(logger, "Gripper command sent.");
 }
 
-static geometry_msgs::msg::PoseStamped apply_local_z_offset(const geometry_msgs::msg::PoseStamped& in,
-                                                            double local_z_m)
+// -------------------------
+// Rotate EE around wheel axis using Cartesian waypoints
+// -------------------------
+static bool rotateAroundAxisCartesian(moveit::planning_interface::MoveGroupInterface& arm,
+                                     const std::string& ee_link,
+                                     const geometry_msgs::msg::PoseStamped& start_pose,
+                                     const tf2::Vector3& center,
+                                     const tf2::Vector3& axis_unit,
+                                     double angle_rad,
+                                     int steps,
+                                     double eef_step,
+                                     rclcpp::Logger logger)
 {
-  geometry_msgs::msg::PoseStamped out = in;
+  (void)ee_link; // not needed (keeps compiler quiet)
 
-  tf2::Quaternion q;
-  tf2::fromMsg(in.pose.orientation, q);
-  tf2::Matrix3x3 R(q);
+  // Base pose
+  geometry_msgs::msg::Pose p0 = start_pose.pose;
 
-  tf2::Vector3 offset_local(0.0, 0.0, local_z_m);
-  tf2::Vector3 offset_world = R * offset_local;
+  // Vector from center to current EE position (radius vector)
+  tf2::Vector3 r0(p0.position.x - center.x(),
+                  p0.position.y - center.y(),
+                  p0.position.z - center.z());
 
-  out.pose.position.x += offset_world.x();
-  out.pose.position.y += offset_world.y();
-  out.pose.position.z += offset_world.z();
-  return out;
+  // Old orientation
+  tf2::Quaternion q_old;
+  tf2::fromMsg(p0.orientation, q_old);
+
+  std::vector<geometry_msgs::msg::Pose> waypoints;
+  waypoints.reserve(steps);
+
+  for (int i = 1; i <= steps; ++i)
+  {
+    const double a = angle_rad * (double(i) / steps);
+
+    // rotation around axis by a
+    tf2::Quaternion q_rot(axis_unit, a);
+
+    // rotate radius vector -> new position
+    tf2::Vector3 r_i = tf2::quatRotate(q_rot, r0);
+    tf2::Vector3 pos = center + r_i;
+
+    geometry_msgs::msg::Pose w = p0;
+    w.position.x = pos.x();
+    w.position.y = pos.y();
+    w.position.z = pos.z();
+
+    // rotate orientation along with motion
+    tf2::Quaternion q_new = q_rot * q_old;
+    w.orientation = tf2::toMsg(q_new);
+
+    waypoints.push_back(w);
+  }
+
+  moveit_msgs::msg::RobotTrajectory traj;
+  const double jump_threshold = 0.0; // disable jump check
+
+  arm.setStartStateToCurrentState();
+  const double fraction = arm.computeCartesianPath(waypoints, eef_step, jump_threshold, traj);
+
+  if (fraction < 0.95)
+  {
+    RCLCPP_WARN(logger, "Cartesian path fraction too low: %.2f", fraction);
+    return false;
+  }
+
+  moveit::planning_interface::MoveGroupInterface::Plan plan;
+  plan.trajectory_ = traj;
+
+  if (arm.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS)
+  {
+    RCLCPP_WARN(logger, "Execution failed (rotate).");
+    return false;
+  }
+
+  return true;
 }
 
-static geometry_msgs::msg::PoseStamped rotate_about_local_z(const geometry_msgs::msg::PoseStamped& in,
-                                                           double angle_rad)
-{
-  geometry_msgs::msg::PoseStamped out = in;
-
-  tf2::Quaternion q_cur;
-  tf2::fromMsg(in.pose.orientation, q_cur);
-
-  tf2::Quaternion q_delta;
-  q_delta.setRotation(tf2::Vector3(0.0, 0.0, 1.0), angle_rad);
-
-  tf2::Quaternion q_new = q_cur * q_delta;
-  q_new.normalize();
-
-  out.pose.orientation = tf2::toMsg(q_new);
-  return out;
-}
-
+// -------------------------
+// Main
+// -------------------------
 int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
-  auto node = rclcpp::Node::make_shared("piper_grab_rotate_node");
+  auto node = rclcpp::Node::make_shared("piper_steeringwheel_rotate_node");
+  auto log = node->get_logger();
 
-  const std::string arm_group = node->declare_parameter<std::string>("arm_group", "arm");
+  // Parameters (optional)
+  const std::string arm_group     = node->declare_parameter<std::string>("arm_group", "arm");
   const std::string gripper_group = node->declare_parameter<std::string>("gripper_group", "gripper");
-
-  const double target_x = node->declare_parameter<double>("target_x", 0.93);
-  const double target_y = node->declare_parameter<double>("target_y", -0.15);
-  const double target_z = node->declare_parameter<double>("target_z", 0.805);
-
-  const double hover_z_offset = node->declare_parameter<double>("hover_z_offset", 0.10);
-  const double local_z_offset = node->declare_parameter<double>("local_z_offset", 0.075);
-
-  const double rotate_deg = node->declare_parameter<double>("rotate_deg", 90.0);
-
-  const double vel_scale = node->declare_parameter<double>("vel_scale", 1.0);
-  const double acc_scale = node->declare_parameter<double>("acc_scale", 1.0);
-
-  const double slow_vel_scale = node->declare_parameter<double>("slow_vel_scale", 0.2);
-  const double slow_acc_scale = node->declare_parameter<double>("slow_acc_scale", 0.2);
-
-  const double gripper_open_j7 = node->declare_parameter<double>("gripper_open_joint7", 0.035);
-  const double gripper_open_j8 = node->declare_parameter<double>("gripper_open_joint8", -0.035);
-  const double gripper_close_j7 = node->declare_parameter<double>("gripper_close_joint7", 0.0);
-  const double gripper_close_j8 = node->declare_parameter<double>("gripper_close_joint8", 0.0);
-
-  RCLCPP_INFO(node->get_logger(), "Arm group: %s", arm_group.c_str());
-  RCLCPP_INFO(node->get_logger(), "Gripper group: %s", gripper_group.c_str());
 
   rclcpp::executors::SingleThreadedExecutor exec;
   exec.add_node(node);
   std::thread spinner([&exec]() { exec.spin(); });
-
   std::this_thread::sleep_for(2s);
 
   moveit::planning_interface::MoveGroupInterface arm(node, arm_group);
@@ -126,65 +178,133 @@ int main(int argc, char** argv)
 
   arm.setPlanningTime(10.0);
   arm.setNumPlanningAttempts(10);
-  arm.setMaxVelocityScalingFactor(vel_scale);
-  arm.setMaxAccelerationScalingFactor(acc_scale);
 
   const std::string planning_frame = arm.getPlanningFrame();
   const std::string ee_link = arm.getEndEffectorLink();
 
-  RCLCPP_INFO(node->get_logger(), "Planning frame: %s", planning_frame.c_str());
-  RCLCPP_INFO(node->get_logger(), "EE link: %s", ee_link.c_str());
+  RCLCPP_INFO(log, "Planning frame: %s", planning_frame.c_str());
+  RCLCPP_INFO(log, "EE link: %s", ee_link.c_str());
 
-  std::map<std::string, double> gr_open{{"joint7", gripper_open_j7}, {"joint8", gripper_open_j8}};
-  std::map<std::string, double> gr_close{{"joint7", gripper_close_j7}, {"joint8", gripper_close_j8}};
 
-  auto base_pose = arm.getCurrentPose(ee_link);
+  //  SET THESE VALUES
+  const double grasp_x = 0.65;
+  const double grasp_y = 0.0;
+  const double grasp_z = 0.85;
 
-  geometry_msgs::msg::PoseStamped hover;
-  hover.header.frame_id = planning_frame;
-  hover.pose = base_pose.pose;
-  hover.pose.position.x = target_x;
-  hover.pose.position.y = target_y;
-  hover.pose.position.z = target_z + hover_z_offset;
+  const double center_x = 1.48751244;
+  const double center_y = 0.0;
+  const double center_z = 0.9;
 
-  geometry_msgs::msg::PoseStamped grasp = hover;
-  grasp.pose.position.z = target_z;
+  double axis_x = 0.0; // TODO
+  double axis_y = 0.0; // TODO
+  double axis_z = 1.0; // TODO
 
-  hover = apply_local_z_offset(hover, local_z_offset);
-  grasp = apply_local_z_offset(grasp, local_z_offset);
+  const double z_hover_offset = 0.10;
 
-  geometry_msgs::msg::PoseStamped lift = hover;
+  const double angle_deg = 90.0;
+  const double angle_rad = angle_deg * M_PI / 180.0;
+  const int steps = 30;
+  const double eef_step = 0.01;
 
-  const double rotate_rad = rotate_deg * M_PI / 180.0;
-  geometry_msgs::msg::PoseStamped rotated = rotate_about_local_z(lift, rotate_rad);
+  // Slow scaling for rotation (optional)
+  arm.setMaxVelocityScalingFactor(0.3);
+  arm.setMaxAccelerationScalingFactor(0.3);
 
-  move_gripper(gripper, gr_open, node->get_logger());
-  std::this_thread::sleep_for(400ms);
+  std::map<std::string, double> joints_home{
+      {"joint1", 0.0}, {"joint2", 0.0}, {"joint3", 0.0},
+      {"joint4", 0.0}, {"joint5", 0.0}, {"joint6", 0.0},
+  };
 
-  if (!plan_and_execute_pose(arm, hover, ee_link, node->get_logger())) goto shutdown;
+  std::map<std::string, double> gripper_open{{"joint7", 0.035}, {"joint8", -0.035}};
+  std::map<std::string, double> gripper_close{{"joint7", 0.0}, {"joint8", 0.0}};
 
-  arm.setMaxVelocityScalingFactor(slow_vel_scale);
-  arm.setMaxAccelerationScalingFactor(slow_acc_scale);
-  if (!plan_and_execute_pose(arm, grasp, ee_link, node->get_logger())) goto shutdown;
-  arm.setMaxVelocityScalingFactor(vel_scale);
-  arm.setMaxAccelerationScalingFactor(acc_scale);
+  bool ok = true;
 
-  move_gripper(gripper, gr_close, node->get_logger());
-  std::this_thread::sleep_for(600ms);
+  // Normalize axis + build center
+  tf2::Vector3 axis(axis_x, axis_y, axis_z);
+  tf2::Vector3 center(center_x, center_y, center_z);
 
-  if (!plan_and_execute_pose(arm, lift, ee_link, node->get_logger())) goto shutdown;
+  if (axis.length2() < 1e-12)
+  {
+    RCLCPP_ERROR(log, "Axis vector is zero. Set axis_x/y/z.");
+    ok = false;
+  }
+  else
+  {
+    axis.normalize();
+  }
 
-  arm.setMaxVelocityScalingFactor(slow_vel_scale);
-  arm.setMaxAccelerationScalingFactor(slow_acc_scale);
-  if (!plan_and_execute_pose(arm, rotated, ee_link, node->get_logger())) goto shutdown;
-  arm.setMaxVelocityScalingFactor(vel_scale);
-  arm.setMaxAccelerationScalingFactor(acc_scale);
+  // Main sequence (no goto!)
+  do
+  {
+    if (!ok) break;
 
-  RCLCPP_INFO(node->get_logger(), "Grab + rotate done.");
+    // Base orientation: use current EE orientation
+    auto cur = arm.getCurrentPose(ee_link);
 
-shutdown:
+    // Build hover + grasp pose
+    geometry_msgs::msg::PoseStamped grasp_hover;
+    grasp_hover.header.frame_id = planning_frame;
+    grasp_hover.pose = cur.pose;
+    grasp_hover.pose.position.x = grasp_x;
+    grasp_hover.pose.position.y = grasp_y;
+    grasp_hover.pose.position.z = grasp_z + z_hover_offset;
+
+    geometry_msgs::msg::PoseStamped grasp_pose = grasp_hover;
+    grasp_pose.pose.position.z = grasp_z;
+
+    RCLCPP_INFO(log, "0) Open gripper");
+    sendGripper(gripper, gripper_open, log);
+    std::this_thread::sleep_for(400ms);
+
+    RCLCPP_INFO(log, "1) Move to hover above wheel grasp point");
+    ok = planAndExecutePose(arm, grasp_hover, ee_link, log);
+    if (!ok) break;
+
+    RCLCPP_INFO(log, "2) Move down to grasp");
+    ok = planAndExecutePose(arm, grasp_pose, ee_link, log);
+    if (!ok) break;
+
+    RCLCPP_INFO(log, "3) Close gripper (grab wheel)");
+    sendGripper(gripper, gripper_close, log);
+    std::this_thread::sleep_for(600ms);
+
+    // After closing, read actual pose (better start for cartesian)
+    auto start_pose = arm.getCurrentPose(ee_link);
+
+    RCLCPP_INFO(log, "4) Rotate wheel +%.1f deg", angle_deg);
+    ok = rotateAroundAxisCartesian(arm, ee_link, start_pose, center, axis, +angle_rad, steps, eef_step, log);
+    if (!ok) break;
+
+    auto pose_after = arm.getCurrentPose(ee_link);
+
+    RCLCPP_INFO(log, "5) Rotate wheel back -%.1f deg", angle_deg);
+    ok = rotateAroundAxisCartesian(arm, ee_link, pose_after, center, axis, -angle_rad, steps, eef_step, log);
+    if (!ok) break;
+
+    RCLCPP_INFO(log, "6) Open gripper (release)");
+    sendGripper(gripper, gripper_open, log);
+    std::this_thread::sleep_for(400ms);
+
+    RCLCPP_INFO(log, "7) Move up to hover");
+    ok = planAndExecutePose(arm, grasp_hover, ee_link, log);
+    if (!ok) break;
+
+    // restore full speed
+    arm.setMaxVelocityScalingFactor(1.0);
+    arm.setMaxAccelerationScalingFactor(1.0);
+
+    RCLCPP_INFO(log, "8) Go home (joints)");
+    ok = planAndExecuteJoints(arm, joints_home, log);
+    if (!ok) break;
+
+    RCLCPP_INFO(log, "Done.");
+  } while (false);
+
+  // Cleanup always
   exec.cancel();
   if (spinner.joinable()) spinner.join();
   rclcpp::shutdown();
-  return 0;
+
+  return ok ? 0 : 1;
 }
