@@ -4,6 +4,7 @@ import math
 import time
 import csv
 from collections import deque
+import os
 
 class SteeringDataStream:
     def __init__(self, frequency_hz=100):
@@ -17,13 +18,19 @@ class SteeringDataStream:
         self.time_buffer = deque(maxlen=10)
         
         # CSV file for recording
-        self.csv_file = open("steering_stream.csv", "w", newline='')
+        save_dir = os.path.expanduser("~/Steeringwheel-Workspace/isaac/streamdata")
+        os.makedirs(save_dir, exist_ok=True)  # Create directory if not exists
+        csv_path = os.path.join(save_dir, "steering_stream.csv")
+        
+        # Open CSV file
+        self.csv_file = open(csv_path, "w", newline='')
         self.writer = csv.writer(self.csv_file)
         self.writer.writerow(["timestamp", "angle_deg", "velocity_deg_s", "torque_nm"])
         
         print(f"Steering Data Stream ready - {frequency_hz}Hz")
+        print(f"Data will save to: {csv_path}")
         print("Commands: start(), stop(), get_data()")
-    
+        
     def start(self):
         """Start streaming data"""
         if self.running:
