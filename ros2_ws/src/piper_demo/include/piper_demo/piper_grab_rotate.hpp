@@ -1,0 +1,130 @@
+#pragma once
+
+#include <rclcpp/rclcpp.hpp>
+#include <moveit/move_group_interface/move_group_interface.h>
+
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/quaternion.hpp>
+
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Vector3.h>
+
+#include <map>
+#include <string>
+#include <memory>
+#include <optional>
+
+class PiperGrabRotate {
+public:  
+  struct WheelPoseSource
+  {
+    // TF frame whose Z axis is the wheel rotation axis
+    std::string tf_frame = "g29_joint_axis";
+
+    // static pose (from issac sim scene))
+    std::string frame = "world";
+    tf2::Vector3 center{0.63854, 0.0, 0.85729}; // wheel frame position (x, y, z)
+    // Euler angles (ZYX): (-90°, 0, 62.93°)
+    tf2::Quaternion q{0.369082,-0.369084,-0.603141,0.603139}; // wheel frame orientation (qx,qy,qz,w)
+    bool use_orientation = true;
+  };
+
+  struct Motion
+  {
+    bool cartesian = true;
+    double eef_step = 0.01;
+    double jump_thresh = 0.0;
+    double min_fraction = 0.10;
+
+    double fast = 1.0;
+    double slow = 0.2;
+
+    double planning_time_s = 20.0;
+    int planning_attempts = 20;
+  };
+
+  struct Gripper
+  {
+    std::string group = "gripper";
+    std::map<std::string,double> open{{"joint7", 0.035}, {"joint8",-0.035}};
+    std::map<std::string,double> close{{"joint7", 0.0},  {"joint8", 0.0}};
+  };
+
+  struct Config
+  {
+    std::string arm_group = "arm";
+    std::string ee_link_override = "";
+
+    WheelPoseSource wheel;
+
+    double radius = 0.18;
+    double start_angle_deg = 90.0;
+    double rotate_deg = -90.0;
+    int rotate_steps = 12;
+
+    double approach_offset = 0.10;   // along +normal
+    double rim_inset = 0.0;          // along -normal
+    double tcp_local_z = 0.0;        // along EE local Z after pose build
+
+    bool set_grasp_orientation = true;
+    bool tool_z_to_normal = true;            // else tool-z to radial
+    bool rotate_orientation_with_wheel = true;
+
+    bool use_pregrasp_joint6 = false;
+    double pregrasp_joint6_rad = 1.57079632679;
+
+    Motion motion;
+    Gripper gripper;
+
+    // If true: require TF wheel frame; else fallback to static pose
+    bool require_wheel_tf = false;
+  };
+
+  PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg);
+  bool run();
+
+private:
+  struct WheelState {
+    tf2::Vector3 c;        // center in planning frame
+    tf2::Quaternion q;     // wheel frame orientation in planning frame
+    tf2::Vector3 n;        // wheel normal (q * ẑ)
+  };
+
+  // Wheel model
+  std::optional<WheelState> resolveWheel() const;
+  tf2::Vector3 rimPoint(const WheelState& ws, double angle_rad) const;
+  void rimFrame(const WheelState& ws, const tf2::Vector3& contact, tf2::Vector3& r_out, tf2::Vector3& t_out) const;
+
+  // Pose algebra
+  geometry_msgs::msg::PoseStamped makeApproachPose(const WheelState& ws, const geometry_msgs::msg::PoseStamped& seed, double angle_rad) const;
+  geometry_msgs::msg::PoseStamped makeGraspPose(const WheelState& ws, const geometry_msgs::msg::PoseStamped& approach) const;
+  geometry_msgs::msg::Quaternion makeGraspOrientation(const WheelState& ws, const tf2::Vector3& contact) const;
+  void applyTcpLocalZ(geometry_msgs::msg::PoseStamped& p) const;
+
+  // Motion
+  void setSpeed(double scale);
+  bool moveToPose(const geometry_msgs::msg::PoseStamped& pose);
+  bool moveToJoints(const std::map<std::string, double>& joints);
+  void moveGripper(const std::map<std::string, double>& target);
+
+  bool rotateArcCartesian(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
+  bool rotateArcStep(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
+
+  bool nudgeJoint(const std::string& joint_name, double delta_rad, double speed_scale, bool clamp=true);
+
+private:
+  rclcpp::Node::SharedPtr node_;
+  rclcpp::Logger logger_;
+  Config cfg_;
+
+  moveit::planning_interface::MoveGroupInterface arm_;
+  moveit::planning_interface::MoveGroupInterface gripper_;
+
+  std::string planning_frame_;
+  std::string ee_link_;
+
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+};
