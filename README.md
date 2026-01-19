@@ -34,6 +34,13 @@ Der Steerbot-Workspace enthält alle Module für das Digital-Twin-Projekt besteh
 
 Ziel ist ein vollständiger Digital Twin, in dem G29, MoveIt2, der echte Roboter und Isaac Sim konsistent zusammenarbeiten.
 
+## 📖 Development Guide
+**New to the project or working on gripper features?** See [DEVELOPMENT.md](DEVELOPMENT.md) for:
+- Branch naming conventions and workflow
+- Repository organization (branch vs. separate repo)
+- Gripper configuration locations
+- Development best practices
+
 ## Workspace Struktur
 ```
 Steerbot/
@@ -92,19 +99,39 @@ Startet:
 ⚠️ Aktuell noch nicht möglich
 
 ## Piper Roboter – wichtige Launchfiles
+
+### Gripper-Konfigurationen
+Der Piper Roboter unterstützt zwei Konfigurationen:
+- **Mit Gripper** (`piper_with_gripper_moveit`)
+- **Ohne Gripper** (`piper_no_gripper_moveit`)
+
 ### MoveIt2 mit Fake-Hardware
+**Ohne Gripper:**
 ```
 ros2 launch piper_no_gripper_moveit controller_bringup.launch.py fake_hardware:=true
 ros2 launch piper_no_gripper_moveit moveit_dt.launch.py
+```
+
+**Mit Gripper:**
+```
+ros2 launch piper_with_gripper_moveit controller_bringup_gripper.launch.py fake_hardware:=true
+ros2 launch piper_with_gripper_moveit moveit_dt_gripper.launch.py
 ```
 
 ### Echtes Hardware-Bringup
 ```
 ros2 launch piper start_single_piper.launch.py
 ```
+
 ### Gazebo Simulation
+**Ohne Gripper:**
 ```
 ros2 launch piper_gazebo piper_no_gripper_gazebo.launch.py
+```
+
+**Mit Gripper:**
+```
+ros2 launch piper_gazebo piper_gazebo.launch.py
 ```
 
 ### Mujoco Simulation
