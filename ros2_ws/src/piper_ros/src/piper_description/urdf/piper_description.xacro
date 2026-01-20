@@ -15,6 +15,7 @@
       <child link="base_link"/>
       <origin xyz="0.19097 0.0 0.76" rpy="0 0 0"/>
   </joint>
+<!-- <origin xyz="0.34592 0.0 0.76" rpy="0 0 0"/> -->
 <!-- arm -->
 <link
     name="base_link">

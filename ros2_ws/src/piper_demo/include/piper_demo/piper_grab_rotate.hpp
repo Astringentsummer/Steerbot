@@ -34,12 +34,12 @@ public:
   struct Motion
   {
     bool cartesian = true;
-    double eef_step = 0.01;
+    double eef_step = 0.005;
     double jump_thresh = 0.0;
-    double min_fraction = 0.10;
+    double min_fraction = 0.60;
 
-    double fast = 1.0;
-    double slow = 0.2;
+    double fast = 0.2;
+    double slow = 0.1;
 
     double planning_time_s = 20.0;
     int planning_attempts = 20;
@@ -59,12 +59,12 @@ public:
 
     WheelPoseSource wheel;
 
-    double radius = 0.18;
+    double radius = 0.13;
     double start_angle_deg = 90.0;
     double rotate_deg = -90.0;
-    int rotate_steps = 12;
+    int rotate_steps = 24;
 
-    double approach_offset = 0.10;   // along +normal
+    double approach_offset = 0.25;   // along +normal
     double rim_inset = 0.0;          // along -normal
     double tcp_local_z = 0.0;        // along EE local Z after pose build
 
@@ -111,6 +111,7 @@ private:
 
   bool rotateArcCartesian(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
   bool rotateArcStep(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
+  double angleOnWheel(const WheelState& ws, const geometry_msgs::msg::PoseStamped& tcp) const;
 
   bool nudgeJoint(const std::string& joint_name, double delta_rad, double speed_scale, bool clamp=true);
 
