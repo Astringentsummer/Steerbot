@@ -8,35 +8,36 @@
 
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Vector3.h>
 
 #include <map>
-#include <string>
 #include <memory>
 #include <optional>
+#include <string>
+#include <cmath>
 
-class PiperGrabRotate {
-public:  
-  struct WheelPoseSource
+#include <moveit/robot_trajectory/robot_trajectory.h>
+#include <moveit/trajectory_processing/iterative_time_parameterization.h>
+#include <moveit/trajectory_processing/time_optimal_trajectory_generation.h>
+
+class PiperGrabRotate
+{
+public:
+  struct Wheel
   {
-    // TF frame whose Z axis is the wheel rotation axis
-    std::string tf_frame = "g29_joint_axis";
-
-    // static pose (from issac sim scene))
     std::string frame = "world";
-    tf2::Vector3 center{0.63854, 0.0, 0.85729}; // wheel frame position (x, y, z)
-    // Euler angles (ZYX): (-90°, 0, 62.93°)
-    tf2::Quaternion q{0.369082,-0.369084,-0.603141,0.603139}; // wheel frame orientation (qx,qy,qz,w)
-    bool use_orientation = true;
+    std::string tf_frame = "g29_joint_axis";
+    tf2::Vector3 center{0.63854, 0.0, 0.85729};
+    tf2::Quaternion q{0.369082, -0.369084, -0.603141, 0.603139};
   };
 
   struct Motion
   {
-    bool cartesian = true;
-    double eef_step = 0.005;
+    double eef_step = 0.01;
     double jump_thresh = 0.0;
-    double min_fraction = 0.60;
+    double min_fraction = 0.10;
 
     double fast = 0.2;
     double slow = 0.1;
@@ -55,65 +56,65 @@ public:
   struct Config
   {
     std::string arm_group = "arm";
-    std::string ee_link_override = "";
+    std::string ee_link_override;
 
-    WheelPoseSource wheel;
+    Wheel wheel;
 
     double radius = 0.13;
     double start_angle_deg = 90.0;
-    double rotate_deg = -90.0;
-    int rotate_steps = 24;
+    // rotation
+    double rotate_deg = -60.0;
+    int rotate_steps = 12;
 
-    double approach_offset = 0.25;   // along +normal
-    double rim_inset = 0.0;          // along -normal
-    double tcp_local_z = 0.0;        // along EE local Z after pose build
-
-    bool set_grasp_orientation = true;
-    bool tool_z_to_normal = true;            // else tool-z to radial
-    bool rotate_orientation_with_wheel = true;
-
-    bool use_pregrasp_joint6 = false;
-    double pregrasp_joint6_rad = 1.57079632679;
+    double approach_offset = 0.25;
+    double rim_inset = 0.0;
+    double tcp_local_z = 0.0;
 
     Motion motion;
     Gripper gripper;
-
-    // If true: require TF wheel frame; else fallback to static pose
-    bool require_wheel_tf = false;
   };
 
   PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg);
   bool run();
 
 private:
-  struct WheelState {
-    tf2::Vector3 c;        // center in planning frame
-    tf2::Quaternion q;     // wheel frame orientation in planning frame
-    tf2::Vector3 n;        // wheel normal (q * ẑ)
+  struct WheelState
+  {
+    tf2::Vector3 c;    // center in planning frame
+    tf2::Quaternion q; // wheel frame orientation in planning frame
+    tf2::Vector3 n;    // wheel normal (q * ẑ)
   };
 
-  // Wheel model
-  std::optional<WheelState> resolveWheel() const;
-  tf2::Vector3 rimPoint(const WheelState& ws, double angle_rad) const;
-  void rimFrame(const WheelState& ws, const tf2::Vector3& contact, tf2::Vector3& r_out, tf2::Vector3& t_out) const;
+  WheelState wheelFromTf() const;
 
-  // Pose algebra
-  geometry_msgs::msg::PoseStamped makeApproachPose(const WheelState& ws, const geometry_msgs::msg::PoseStamped& seed, double angle_rad) const;
-  geometry_msgs::msg::PoseStamped makeGraspPose(const WheelState& ws, const geometry_msgs::msg::PoseStamped& approach) const;
-  geometry_msgs::msg::Quaternion makeGraspOrientation(const WheelState& ws, const tf2::Vector3& contact) const;
+  tf2::Vector3 rimPoint(const WheelState& ws, double angle_rad) const;
+  void rimFrame(const WheelState& ws, const tf2::Vector3& contact,
+                tf2::Vector3& r_out, tf2::Vector3& t_out) const;
+
+  geometry_msgs::msg::PoseStamped makeApproachPose(const WheelState& ws,
+                                                   const geometry_msgs::msg::PoseStamped& seed,
+                                                   double angle_rad) const;
+  geometry_msgs::msg::PoseStamped makeGraspPose(const WheelState& ws,
+                                                const geometry_msgs::msg::PoseStamped& approach) const;
+  geometry_msgs::msg::Quaternion makeGraspOrientation(const WheelState& ws,
+                                                      const tf2::Vector3& contact) const;
   void applyTcpLocalZ(geometry_msgs::msg::PoseStamped& p) const;
 
-  // Motion
   void setSpeed(double scale);
   bool moveToPose(const geometry_msgs::msg::PoseStamped& pose);
   bool moveToJoints(const std::map<std::string, double>& joints);
   void moveGripper(const std::map<std::string, double>& target);
 
   bool rotateArcCartesian(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
-  bool rotateArcStep(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
-  double angleOnWheel(const WheelState& ws, const geometry_msgs::msg::PoseStamped& tcp) const;
+  
+  bool execTraj(const moveit_msgs::msg::RobotTrajectory& traj, const char* tag);
+  bool cartesianTo(const geometry_msgs::msg::Pose& target, const char* tag,
+                   double eef_step = -1.0, double jump_thresh = -1.0, double min_fraction = -1.0);
+  
 
-  bool nudgeJoint(const std::string& joint_name, double delta_rad, double speed_scale, bool clamp=true);
+  double angleOnWheel(const WheelState& ws, const geometry_msgs::msg::PoseStamped& tcp) const;
+  bool nudgeJoint(const std::string& joint_name, double delta_rad,
+                  double speed_scale, bool clamp=true);
 
 private:
   rclcpp::Node::SharedPtr node_;
@@ -128,4 +129,5 @@ private:
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
 };

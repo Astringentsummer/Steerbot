@@ -5,101 +5,15 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <thread>
 #include <vector>
 
 using namespace std::chrono_literals;
 
-static bool moveLinear(moveit::planning_interface::MoveGroupInterface& arm,
-                       rclcpp::Logger logger,
-                       const geometry_msgs::msg::Pose& target,
-                       double eef_step,
-                       double jump_thresh,
-                       double min_fraction)
-{
-  std::vector<geometry_msgs::msg::Pose> waypoints;
-  waypoints.reserve(2);
-
-  geometry_msgs::msg::Pose start = arm.getCurrentPose().pose;
-  waypoints.push_back(start);
-  waypoints.push_back(target);
-
-  moveit_msgs::msg::RobotTrajectory traj;
-  arm.setStartStateToCurrentState();
-
-  const double fraction = arm.computeCartesianPath(
-      waypoints, eef_step, jump_thresh, traj, true);
-
-  RCLCPP_INFO(logger, "Linear cartesian fraction: %.3f", fraction);
-
-  if (fraction < min_fraction)
-  {
-    RCLCPP_WARN(logger, "Linear cartesian path too small (%.3f < %.3f).",
-                fraction, min_fraction);
-    return false;
-  }
-
-  moveit::planning_interface::MoveGroupInterface::Plan plan;
-  plan.trajectory_ = traj;
-
-  if (arm.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS)
-  {
-    RCLCPP_WARN(logger, "Linear cartesian execute failed.");
-    return false;
-  }
-
-  return true;
-}
-
-static bool moveLinearToPoseStamped(moveit::planning_interface::MoveGroupInterface& arm,
-                                    rclcpp::Logger logger,
-                                    const geometry_msgs::msg::PoseStamped& target,
-                                    double eef_step,
-                                    double jump_thresh,
-                                    double min_fraction,
-                                    const std::string& ee_link)
-{
-  std::vector<geometry_msgs::msg::Pose> waypoints;
-  waypoints.reserve(2);
-
-  geometry_msgs::msg::Pose start = arm.getCurrentPose(ee_link).pose;
-  waypoints.push_back(start);
-  waypoints.push_back(target.pose);
-
-  moveit_msgs::msg::RobotTrajectory traj;
-  arm.setStartStateToCurrentState();
-
-  const double fraction = arm.computeCartesianPath(
-      waypoints, eef_step, jump_thresh, traj, true);
-
-  RCLCPP_INFO(logger, "Segment cartesian fraction: %.3f", fraction);
-
-  if (fraction < min_fraction)
-  {
-    RCLCPP_WARN(logger, "Segment cartesian path too small (%.3f < %.3f).",
-                fraction, min_fraction);
-    return false;
-  }
-
-  moveit::planning_interface::MoveGroupInterface::Plan plan;
-  plan.trajectory_ = traj;
-
-  if (arm.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS)
-  {
-    RCLCPP_WARN(logger, "Segment cartesian execute failed.");
-    return false;
-  }
-
-  return true;
-}
-
-
 // If the quaternion is (almost) zero-length, return identity.
-static tf2::Quaternion normalizedQuat(const tf2::Quaternion& q_in)
+static tf2::Quaternion normalizedQuat(tf2::Quaternion q)
 {
-  tf2::Quaternion q = q_in;
-  if (q.length2() < 1e-12) return tf2::Quaternion(0, 0, 0, 1);
+  if (q.length2() < 1e-12) return tf2::Quaternion(0,0,0,1);
   q.normalize();
   return q;
 }
@@ -130,7 +44,24 @@ static geometry_msgs::msg::Quaternion rotateQuatAroundAxisWorld(
   return tf2::toMsg(q);
 }
 
-// PiperGrabRotate constructor
+static geometry_msgs::msg::TransformStamped makeStaticTf(
+  const rclcpp::Time& stamp, const std::string& parent, const std::string& child,
+  const tf2::Vector3& t, const tf2::Quaternion& q_in)
+{
+  geometry_msgs::msg::TransformStamped st;
+  st.header.stamp = stamp;
+  st.header.frame_id = parent;
+  st.child_frame_id  = child;
+
+  st.transform.translation.x = t.x();
+  st.transform.translation.y = t.y();
+  st.transform.translation.z = t.z();
+
+  tf2::Quaternion q = normalizedQuat(q_in);
+  st.transform.rotation = tf2::toMsg(q);
+  return st;
+}
+
 PiperGrabRotate::PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg)
 : node_(std::move(node)),
   logger_(node_->get_logger()),
@@ -138,34 +69,41 @@ PiperGrabRotate::PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg)
   arm_(node_, cfg_.arm_group),
   gripper_(node_, cfg_.gripper.group)
 {
-  // TF listener used to resolve the wheel pose and transform between frames
+  // TF infrastructure
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+  static_tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(node_);
 
-  // MoveIt planning settings (timeouts, retry attempts, etc.)
+  // MoveIt settings
   arm_.setPlanningTime(cfg_.motion.planning_time_s);
   arm_.setNumPlanningAttempts(cfg_.motion.planning_attempts);
 
-
-  // Optionally override the end-effector link used for pose targets
   if (!cfg_.ee_link_override.empty())
     arm_.setEndEffectorLink(cfg_.ee_link_override);
 
-  // Cache the planning/world frame and the end-effector link name
   planning_frame_ = arm_.getPlanningFrame();
   ee_link_ = arm_.getEndEffectorLink();
 
   // Normalize static wheel quaternion once
   cfg_.wheel.q = normalizedQuat(cfg_.wheel.q);
 
+  // --- publish static TF once (world -> g29_joint_axis) ---
+  if (!cfg_.wheel.tf_frame.empty())
+  {
+    static_tf_broadcaster_->sendTransform(
+      makeStaticTf(node_->get_clock()->now(),
+                   cfg_.wheel.frame,     // parent "world"
+                   cfg_.wheel.tf_frame,  // child "g29_joint_axis"
+                   cfg_.wheel.center,
+                   cfg_.wheel.q));
+  
+    RCLCPP_INFO(logger_, "Published static TF: %s -> %s",
+                cfg_.wheel.frame.c_str(), cfg_.wheel.tf_frame.c_str());
+  }
+
   RCLCPP_INFO(logger_, "Planning frame: %s", planning_frame_.c_str());
   RCLCPP_INFO(logger_, "EE link: %s", ee_link_.c_str());
-  RCLCPP_INFO(logger_, "Wheel TF frame: '%s' (require=%s)",
-              cfg_.wheel.tf_frame.c_str(),
-              cfg_.require_wheel_tf ? "true" : "false");
-  RCLCPP_INFO(logger_, "Wheel static pose frame: '%s' center=(%.4f %.4f %.4f)",
-              cfg_.wheel.frame.c_str(),
-              cfg_.wheel.center.x(), cfg_.wheel.center.y(), cfg_.wheel.center.z());
+  RCLCPP_INFO(logger_, "Wheel TF frame: '%s'", cfg_.wheel.tf_frame.c_str());
 }
 
 double PiperGrabRotate::angleOnWheel(const WheelState& ws,
@@ -174,114 +112,39 @@ double PiperGrabRotate::angleOnWheel(const WheelState& ws,
   tf2::Vector3 p(tcp.pose.position.x, tcp.pose.position.y, tcp.pose.position.z);
 
   tf2::Vector3 v = p - ws.c;
-  v = v - ws.n * v.dot(ws.n);  // Projektion in Radebene
+  v = v - ws.n * v.dot(ws.n);  // projection wheelplane
   if (v.length2() < 1e-12) return 0.0;
 
   tf2::Vector3 v_local = tf2::quatRotate(ws.q.inverse(), v);
   return std::atan2(v_local.y(), v_local.x());
 }
 
-/*
- Strategy:
- 1) If cfg_.wheel.tf_frame is set: try TF lookup (planning_frame <- wheel.tf_frame)
-    - If successful, use that as wheel center/orientation.
-    - If required and it fails -> return nullopt.
-    - If not required and it fails -> fall back to static config.
- 2) Static fallback: wheel.center and (optional) wheel.q provided in cfg_.wheel.frame.
-    - If cfg_.wheel.frame != planning_frame, transform it via TF. If TF fails, use raw values.
-  Wheel normal:
-    - If orientation is used, the wheel normal is wheel-local +Z rotated into planning frame.
-    - Otherwise, assume the wheel normal is +Z in planning frame.
-*/
-std::optional<PiperGrabRotate::WheelState> PiperGrabRotate::resolveWheel() const
+PiperGrabRotate::WheelState PiperGrabRotate::wheelFromTf() const
 {
-  WheelState ws{};
+  // waiting until tf is available (max 1s)
+  const auto timeout = tf2::durationFromSec(1.0);
 
-  // Primary source: TF frame for the wheel (best, because it moves with the world/sim)
-  if (!cfg_.wheel.tf_frame.empty())
+  if (!tf_buffer_->canTransform(planning_frame_, cfg_.wheel.tf_frame, tf2::TimePointZero, timeout))
   {
-    try
-    {
-      auto T = tf_buffer_->lookupTransform(planning_frame_, cfg_.wheel.tf_frame, tf2::TimePointZero);
-      tf2::Transform tf;
-      tf2::fromMsg(T.transform, tf);
-
-      // Wheel center and orientation in planning frame
-      ws.c = tf.getOrigin();
-      ws.q = normalizedQuat(tf.getRotation());
-
-      // Wheel normal = rotated +Z of the wheel frame into planning frame
-      ws.n = tf2::quatRotate(ws.q, tf2::Vector3(0, 0, 1));
-      if (ws.n.length2() < 1e-12) ws.n = tf2::Vector3(0, 0, 1);
-      ws.n.normalize();
-
-      return ws;
-    }
-    catch (const tf2::TransformException& ex)
-    {
-      // If TF is mandatory, fail hard
-      if (cfg_.require_wheel_tf)
-      {
-        RCLCPP_ERROR(logger_, "Wheel TF required, but lookupTransform(%s <- %s) failed: %s",
-                     planning_frame_.c_str(), cfg_.wheel.tf_frame.c_str(), ex.what());
-        return std::nullopt;
-      }
-
-      // Otherwise: warn and continue with fallback
-      RCLCPP_WARN(logger_, "Wheel TF lookupTransform(%s <- %s) failed: %s. Falling back to static wheel pose.",
-                  planning_frame_.c_str(), cfg_.wheel.tf_frame.c_str(), ex.what());
-    }
+    throw tf2::LookupException(
+      "TF not available: " + planning_frame_ + " <- " + cfg_.wheel.tf_frame);
   }
 
-  // Fallback: static wheel pose in cfg_.wheel.frame
-  tf2::Vector3 c_src = cfg_.wheel.center;
-  // If use_orientation is false, use identity and assume normal is +Z
-  tf2::Quaternion q_src = cfg_.wheel.use_orientation ? normalizedQuat(cfg_.wheel.q) : tf2::Quaternion(0, 0, 0, 1);
+  auto T = tf_buffer_->lookupTransform(planning_frame_, cfg_.wheel.tf_frame, tf2::TimePointZero);
 
+  tf2::Transform tf;
+  tf2::fromMsg(T.transform, tf);
 
-  if (cfg_.wheel.frame == planning_frame_)
-  {
-    // Static pose already in planning frame
-    ws.c = c_src;
-    ws.q = q_src;
-  }
-  else
-  {
-    // Transform static pose into the planning frame
-    try
-    {
-      auto T = tf_buffer_->lookupTransform(planning_frame_, cfg_.wheel.frame, tf2::TimePointZero);
-      tf2::Transform tf;
-      tf2::fromMsg(T.transform, tf);
+  WheelState ws;
+  ws.c = tf.getOrigin();
+  ws.q = normalizedQuat(tf.getRotation());
 
-      // Point transform and rotation composition
-      ws.c = tf * c_src;
-      ws.q = normalizedQuat(tf.getRotation() * q_src);
-    }
-    catch (const tf2::TransformException& ex)
-    {
-      // Last resort: use raw values without any TF transform
-      RCLCPP_WARN(logger_, "Static wheel TF lookupTransform(%s <- %s) failed: %s. Using raw static values (no TF).",
-                  planning_frame_.c_str(), cfg_.wheel.frame.c_str(), ex.what());
-      ws.c = c_src;
-      ws.q = q_src;
-    }
-  }
-
-  // Determine wheel normal based on whether we trust/used orientation
-  ws.n = cfg_.wheel.use_orientation
-           ? tf2::quatRotate(ws.q, tf2::Vector3(0, 0, 1))
-           : tf2::Vector3(0, 0, 1);
-
-  if (ws.n.length2() < 1e-12) ws.n = tf2::Vector3(0, 0, 1);
+  ws.n = tf2::quatRotate(ws.q, tf2::Vector3(0,0,1));
+  if (ws.n.length2() < 1e-12) ws.n = tf2::Vector3(0,0,1);
   ws.n.normalize();
-
   return ws;
 }
 
-// Compute a point on the wheel rim for an angle in the wheel plane.
-// The wheel plane is defined by ws.q and center ws.c.
-// Create a local XY point on the circle and rotate it into planning frame.
 tf2::Vector3 PiperGrabRotate::rimPoint(const WheelState& ws, double angle_rad) const
 {
   const tf2::Vector3 local(cfg_.radius * std::cos(angle_rad),
@@ -290,11 +153,6 @@ tf2::Vector3 PiperGrabRotate::rimPoint(const WheelState& ws, double angle_rad) c
   return tf2::quatRotate(ws.q, local) + ws.c;
 }
 
-
-// Compute radial and tangential directions at a rim contact point.
-// r_out: unit radial direction in the wheel plane (from center towards contact)
-// t_out: unit tangential direction in the wheel plane (normal x radial)
-// Ensure r lies in the wheel plane by projecting out the component along ws.n.
 void PiperGrabRotate::rimFrame(const WheelState& ws, const tf2::Vector3& contact,
                                tf2::Vector3& r_out, tf2::Vector3& t_out) const
 {
@@ -313,42 +171,24 @@ void PiperGrabRotate::rimFrame(const WheelState& ws, const tf2::Vector3& contact
   t_out = t;
 }
 
-
-/*
-Build a grasp orientation for the tool at the rim contact
-Defining a local frame for the tool:
-  - tool Z axis points either:
-    - into the wheel plane normal (-ws.n) if tool_z_to_normal is true, or
-    - towards the wheel center direction (-r) otherwise
-  - tool X axis aligned with rim tangent direction (t)
-Then compute Y = Z x X and re-orthogonalize to ensure a valid rotation matrix.
- */
-geometry_msgs::msg::Quaternion PiperGrabRotate::makeGraspOrientation(
-    const WheelState& ws, const tf2::Vector3& contact) const
+geometry_msgs::msg::Quaternion PiperGrabRotate::makeGraspOrientation(const WheelState& ws, const tf2::Vector3& contact) const
 {
   tf2::Vector3 r, t;
   rimFrame(ws, contact, r, t);
 
-  // Choose what the tool's Z axis should align with
-  tf2::Vector3 z_axis = cfg_.tool_z_to_normal ? (-ws.n) : (-r);
-  if (z_axis.length2() < 1e-12) z_axis = tf2::Vector3(0, 0, -1);
+  tf2::Vector3 z_axis = (-ws.n);  // Fixed: Tool-Z zeigt gegen Rad-Normale
   z_axis.normalize();
 
-  // Tool X axis along the tangent direction
-  tf2::Vector3 x_axis = t;
+  tf2::Vector3 x_axis = t;        // X along tangent
   x_axis.normalize();
 
-  // Tool Y axis completes right-handed frame
   tf2::Vector3 y_axis = z_axis.cross(x_axis);
-  if (y_axis.length2() < 1e-12) y_axis = tf2::Vector3(0, 1, 0);
+  if (y_axis.length2() < 1e-12) y_axis = tf2::Vector3(0,1,0);
   y_axis.normalize();
 
-  // Re-orthogonalize X to avoid accumulated numerical skew
   x_axis = y_axis.cross(z_axis);
-  if (x_axis.length2() < 1e-12) x_axis = tf2::Vector3(1, 0, 0);
   x_axis.normalize();
 
-  // Build rotation matrix with columns = (x, y, z)
   tf2::Matrix3x3 R(
     x_axis.x(), y_axis.x(), z_axis.x(),
     x_axis.y(), y_axis.y(), z_axis.y(),
@@ -357,9 +197,7 @@ geometry_msgs::msg::Quaternion PiperGrabRotate::makeGraspOrientation(
 
   tf2::Quaternion q;
   R.getRotation(q);
-  q = normalizedQuat(q);
-
-  return tf2::toMsg(q);
+  return tf2::toMsg(normalizedQuat(q));
 }
 
 // Pose post-processing: shift along tool's local Z
@@ -381,18 +219,7 @@ void PiperGrabRotate::applyTcpLocalZ(geometry_msgs::msg::PoseStamped& p) const
   p.pose.position.z += dz * z_axis.z();
 }
 
-/*
-Create an approach pose above the rim contact.
-Steps:
-  - Compute the rim contact point for angle_rad.
-  - Move along +wheel normal by approach_offset (stand-off).
-  - Optionally set grasp orientation.
-  - Apply TCP local Z correction.
-*/
-geometry_msgs::msg::PoseStamped PiperGrabRotate::makeApproachPose(
-    const WheelState& ws,
-    const geometry_msgs::msg::PoseStamped& seed,
-    double angle_rad) const
+geometry_msgs::msg::PoseStamped PiperGrabRotate::makeApproachPose(const WheelState& ws, const geometry_msgs::msg::PoseStamped& seed, double angle_rad) const
 {
   geometry_msgs::msg::PoseStamped out;
   out.header.frame_id = planning_frame_;
@@ -400,60 +227,32 @@ geometry_msgs::msg::PoseStamped PiperGrabRotate::makeApproachPose(
 
   const tf2::Vector3 contact = rimPoint(ws, angle_rad);
 
-  out.pose.position.x = contact.x();
-  out.pose.position.y = contact.y();
-  out.pose.position.z = contact.z();
+  out.pose.position.x = contact.x() + cfg_.approach_offset * ws.n.x();
+  out.pose.position.y = contact.y() + cfg_.approach_offset * ws.n.y();
+  out.pose.position.z = contact.z() + cfg_.approach_offset * ws.n.z();
 
-  // Stand off along wheel normal (+n)
-  out.pose.position.x += cfg_.approach_offset * ws.n.x();
-  out.pose.position.y += cfg_.approach_offset * ws.n.y();
-  out.pose.position.z += cfg_.approach_offset * ws.n.z();
-
-  if (cfg_.set_grasp_orientation)
-    out.pose.orientation = makeGraspOrientation(ws, contact);
-
+  out.pose.orientation = makeGraspOrientation(ws, contact);
   applyTcpLocalZ(out);
   return out;
 }
 
-/**
-Create a grasp pose at/inside the rim from an approach pose.
-Steps:
-  - Undo approach offset to go back to the rim.
-  - Inset along -normal by rim_inset (push into the rim slightly).
-  - Optionally recompute grasp orientation.
-  - Apply TCP local Z correction.
-*/
-geometry_msgs::msg::PoseStamped PiperGrabRotate::makeGraspPose(
-    const WheelState& ws,
-    const geometry_msgs::msg::PoseStamped& approach) const
+geometry_msgs::msg::PoseStamped PiperGrabRotate::makeGraspPose(const WheelState& ws, const geometry_msgs::msg::PoseStamped& approach) const
 {
   geometry_msgs::msg::PoseStamped out = approach;
 
-  tf2::Vector3 n = ws.n;
-  if (n.length2() < 1e-12) n = tf2::Vector3(0, 0, 1);
-  n.normalize();
+  out.pose.position.x -= cfg_.approach_offset * ws.n.x();
+  out.pose.position.y -= cfg_.approach_offset * ws.n.y();
+  out.pose.position.z -= cfg_.approach_offset * ws.n.z();
 
-  out.pose.position.x -= cfg_.approach_offset * n.x();
-  out.pose.position.y -= cfg_.approach_offset * n.y();
-  out.pose.position.z -= cfg_.approach_offset * n.z();
+  out.pose.position.x -= cfg_.rim_inset * ws.n.x();
+  out.pose.position.y -= cfg_.rim_inset * ws.n.y();
+  out.pose.position.z -= cfg_.rim_inset * ws.n.z();
 
-  out.pose.position.x -= cfg_.rim_inset * n.x();
-  out.pose.position.y -= cfg_.rim_inset * n.y();
-  out.pose.position.z -= cfg_.rim_inset * n.z();
-
-  const tf2::Vector3 contact(
-      out.pose.position.x,
-      out.pose.position.y,
-      out.pose.position.z);
-
-  if (cfg_.set_grasp_orientation)
-    out.pose.orientation = makeGraspOrientation(ws, contact);
-
+  tf2::Vector3 contact(out.pose.position.x, out.pose.position.y, out.pose.position.z);
+  out.pose.orientation = makeGraspOrientation(ws, contact);
   applyTcpLocalZ(out);
   return out;
 }
-
 
 // Set velocity/acceleration scaling for the arm. Values typically in [0..1].
 void PiperGrabRotate::setSpeed(double scale)
@@ -506,8 +305,6 @@ bool PiperGrabRotate::moveToJoints(const std::map<std::string, double>& joints)
   return true;
 }
 
-// Move the gripper to a joint target (open/close presets).
-// Uses MoveGroupInterface::move() for simple single-group motion.
 void PiperGrabRotate::moveGripper(const std::map<std::string, double>& target)
 {
   gripper_.setStartStateToCurrentState();
@@ -519,35 +316,34 @@ void PiperGrabRotate::moveGripper(const std::map<std::string, double>& target)
     RCLCPP_INFO(logger_, "Gripper move ok.");
 }
 
-// Rotate along the wheel rim using a single Cartesian path.
-// Builds waypoints on the rim, optionally rotating the tool orientation around the wheel normal (world axis ws.n),
-// then calls computeCartesianPath().
-bool PiperGrabRotate::rotateArcCartesian(const WheelState& ws,
-                                        const geometry_msgs::msg::PoseStamped& grasp_pose,
-                                        double start_angle_rad)
+bool PiperGrabRotate::rotateArcCartesian(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad)
 {
-  const int steps = std::max(12, cfg_.rotate_steps);                 // min 12
+  const int steps = std::max(24, cfg_.rotate_steps);
   const double total_rad = cfg_.rotate_deg * M_PI / 180.0;
 
-  std::vector<geometry_msgs::msg::Pose> waypoints;
-  waypoints.reserve(static_cast<size_t>(steps + 1));
+  // Startpose
+  geometry_msgs::msg::Pose p_start = arm_.getCurrentPose(ee_link_).pose;
+  // Referenzpose for grasp-orientation
+  const geometry_msgs::msg::Pose p_ref = grasp_pose.pose;
 
-  geometry_msgs::msg::Pose p0 = arm_.getCurrentPose(ee_link_).pose;
-  waypoints.push_back(p0);
+  std::vector<geometry_msgs::msg::Pose> waypoints;
+  waypoints.reserve(steps + 1);
+  waypoints.push_back(p_start);
 
   for (int i = 1; i <= steps; ++i)
   {
-    const double s = static_cast<double>(i) / static_cast<double>(steps);
+    const double s = double(i) / double(steps);
     const double a = start_angle_rad + total_rad * s;
 
-    geometry_msgs::msg::Pose p = p0;
-
+    geometry_msgs::msg::Pose p = p_start;
     const tf2::Vector3 rim = rimPoint(ws, a);
+
     p.position.x = rim.x() - cfg_.rim_inset * ws.n.x();
     p.position.y = rim.y() - cfg_.rim_inset * ws.n.y();
     p.position.z = rim.z() - cfg_.rim_inset * ws.n.z();
 
-    p.orientation = p0.orientation;
+    // Continous orientation around ws.n
+    p.orientation = rotateQuatAroundAxisWorld(p_ref.orientation, ws.n, total_rad * s);
 
     waypoints.push_back(p);
   }
@@ -556,125 +352,79 @@ bool PiperGrabRotate::rotateArcCartesian(const WheelState& ws,
   arm_.setStartStateToCurrentState();
 
   const double fraction = arm_.computeCartesianPath(
-      waypoints,
-      cfg_.motion.eef_step,
-      cfg_.motion.jump_thresh,
-      traj,
-      true);
-
-  RCLCPP_INFO(logger_, "Arc(POS) cartesian fraction: %.3f", fraction);
+  waypoints, cfg_.motion.eef_step, cfg_.motion.jump_thresh, traj, true);
 
   if (fraction < cfg_.motion.min_fraction)
   {
-    RCLCPP_WARN(logger_, "Arc(POS) cartesian path too small (%.3f < %.3f).",
-                fraction, cfg_.motion.min_fraction);
+    RCLCPP_WARN(logger_, "Arc cartesian fraction too small: %.3f", fraction);
     return false;
   }
+
+  moveit::planning_interface::MoveGroupInterface::Plan plan;
+  plan.trajectory_ = traj;
+  return arm_.execute(plan) == moveit::core::MoveItErrorCode::SUCCESS;
+}
+
+bool PiperGrabRotate::execTraj(const moveit_msgs::msg::RobotTrajectory& traj, const char* tag)
+{
+  if (!tag) tag = "Traj";
 
   moveit::planning_interface::MoveGroupInterface::Plan plan;
   plan.trajectory_ = traj;
 
   if (arm_.execute(plan) != moveit::core::MoveItErrorCode::SUCCESS)
   {
-    RCLCPP_WARN(logger_, "Arc(POS) cartesian execute failed.");
+    RCLCPP_WARN(logger_, "%s execute failed.", tag);
+    return false;
+  }
+  return true;
+}
+
+bool PiperGrabRotate::cartesianTo(const geometry_msgs::msg::Pose& target, const char* tag,
+                                  double eef_step, double jump_thresh, double min_fraction)
+{
+  if (!tag) tag = "Cartesian";
+
+  // Defaults from cfg_
+  if (eef_step < 0.0)      eef_step      = cfg_.motion.eef_step;
+  if (jump_thresh < 0.0)   jump_thresh   = cfg_.motion.jump_thresh;
+  if (min_fraction < 0.0)  min_fraction  = cfg_.motion.min_fraction;
+
+  const auto start = arm_.getCurrentPose(ee_link_).pose;
+
+  const double dx = target.position.x - start.position.x;
+  const double dy = target.position.y - start.position.y;
+  const double dz = target.position.z - start.position.z;
+  const double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+
+  std::vector<geometry_msgs::msg::Pose> wps;
+  wps.reserve(2);
+  wps.push_back(start);
+  wps.push_back(target);
+
+  moveit_msgs::msg::RobotTrajectory traj;
+  arm_.setStartStateToCurrentState();
+
+  const double frac = arm_.computeCartesianPath(wps, eef_step, jump_thresh, traj, true);
+
+  RCLCPP_INFO(logger_, "%s cartesian fraction: %.3f (dist=%.3f, step=%.4f, jump=%.3f, min=%.3f)",
+              tag, frac, dist, eef_step, jump_thresh, min_fraction);
+
+  if (frac < min_fraction)
+  {
+    RCLCPP_WARN(logger_, "%s cartesian path too small (%.3f < %.3f).",
+                tag, frac, min_fraction);
     return false;
   }
 
-  // -------- Phase B: OPTIONAL orientation-follow (separat, robust) --------
-  if (cfg_.rotate_orientation_with_wheel)
-  {
-    // Drehe TCP-Orientation um ws.n in kleinen Steps am Endpunkt
-    auto end_pose = arm_.getCurrentPose(ee_link_);
-    const int osteps = std::max(6, steps / 2);
-
-    for (int i = 1; i <= osteps; ++i)
-    {
-      const double s = static_cast<double>(i) / static_cast<double>(osteps);
-      geometry_msgs::msg::PoseStamped tgt = end_pose;
-      tgt.header.frame_id = planning_frame_;
-      tgt.pose.orientation = rotateQuatAroundAxisWorld(end_pose.pose.orientation, ws.n, total_rad * s);
-
-      // nur orientation ändern, position halten
-      tgt.pose.position = end_pose.pose.position;
-
-      if (!moveToPose(tgt))
-      {
-        RCLCPP_WARN(logger_, "Arc(ORI) moveToPose failed at step %d/%d", i, osteps);
-        return false;
-      }
-    }
-  }
-
-  return true;
+  return execTraj(traj, tag);
 }
 
-
-// Rotate along the wheel rim by planning/executing each waypoint separately.
-bool PiperGrabRotate::rotateArcStep(const WheelState& ws,
-                                    const geometry_msgs::msg::PoseStamped& grasp_pose,
-                                    double start_angle_rad)
-{
-  const int steps = std::max(1, cfg_.rotate_steps);
-  const double total_rad = cfg_.rotate_deg * M_PI / 180.0;
-
-  RCLCPP_INFO(logger_, "Rotate along arc (cartesian-step): %d steps, total_deg=%.1f",
-              steps, cfg_.rotate_deg);
-
-  geometry_msgs::msg::PoseStamped cur = arm_.getCurrentPose(ee_link_);
-  cur.header.frame_id = planning_frame_;
-
-  for (int i = 1; i <= steps; ++i)
-  {
-    const double s = static_cast<double>(i) / static_cast<double>(steps);
-    const double a = start_angle_rad + total_rad * s;
-
-    geometry_msgs::msg::PoseStamped tgt = cur;
-    tgt.header.frame_id = planning_frame_;
-
-    const tf2::Vector3 rim = rimPoint(ws, a);
-    tgt.pose.position.x = rim.x() - cfg_.rim_inset * ws.n.x();
-    tgt.pose.position.y = rim.y() - cfg_.rim_inset * ws.n.y();
-    tgt.pose.position.z = rim.z() - cfg_.rim_inset * ws.n.z();
-
-    if (cfg_.rotate_orientation_with_wheel)
-    {
-      tgt.pose.orientation = rotateQuatAroundAxisWorld(cur.pose.orientation, ws.n, total_rad / steps);
-    }
-    else
-    {
-      tgt.pose.orientation = cur.pose.orientation;
-    }
-
-    if (!moveLinearToPoseStamped(arm_, logger_, tgt,
-                                 cfg_.motion.eef_step,
-                                 cfg_.motion.jump_thresh,
-                                 /*min_fraction=*/0.90,
-                                 ee_link_))
-      return false;
-
-    cur = arm_.getCurrentPose(ee_link_);
-    cur.header.frame_id = planning_frame_;
-  }
-
-  return true;
-}
-
-
-/*
-Add a small delta to one joint and execute the motion.
-  - Reads current joint values.
-  - Adds delta_rad to joint_name.
-  - Optionally clamps to joint limits.
-  - Plans and executes with a speed scaling.
-*/
-bool PiperGrabRotate::nudgeJoint(const std::string& joint_name,
-                                 double delta_rad,
-                                 double speed_scale,
-                                 bool clamp)
+bool PiperGrabRotate::nudgeJoint(const std::string& joint_name, double delta_rad,
+                                 double speed_scale, bool clamp)
 {
   const auto names = arm_.getJointNames();
   auto vals = arm_.getCurrentJointValues();
-
 
   // Find index of the requested joint
   int idx = -1;
@@ -692,7 +442,6 @@ bool PiperGrabRotate::nudgeJoint(const std::string& joint_name,
 
   double target = vals[idx] + delta_rad;
 
-  // Optionally clamp to joint bounds from the robot model
   if (clamp)
   {
     const auto state = arm_.getCurrentState();
@@ -739,31 +488,20 @@ bool PiperGrabRotate::nudgeJoint(const std::string& joint_name,
 // Main sequence: open -> approach -> grasp -> rotate -> release -> retract
 bool PiperGrabRotate::run()
 {
-  auto ws_opt = resolveWheel();
-  if (!ws_opt)
+  WheelState ws;
+  try {
+    ws = wheelFromTf();
+  } catch (const tf2::TransformException& e) {
+    RCLCPP_ERROR(logger_, "wheelFromTf failed: %s", e.what());
     return false;
+  }
 
-  const WheelState& ws = *ws_opt;
+  const double a0 = cfg_.start_angle_deg * M_PI / 180.0;
+  auto seed = arm_.getCurrentPose(ee_link_);
 
   RCLCPP_INFO(logger_, "Wheel(planning): c=(%.4f %.4f %.4f) n=(%.4f %.4f %.4f)",
               ws.c.x(), ws.c.y(), ws.c.z(),
               ws.n.x(), ws.n.y(), ws.n.z());
-
-  const double a0 = cfg_.start_angle_deg * M_PI / 180.0;
-
-  auto seed = arm_.getCurrentPose(ee_link_);
-
-  if (cfg_.use_pregrasp_joint6)
-  {
-    RCLCPP_INFO(logger_, "Pregrasp: setting joint6 to %.3f rad", cfg_.pregrasp_joint6_rad);
-    std::map<std::string, double> j;
-    j["joint6"] = cfg_.pregrasp_joint6_rad;
-    setSpeed(cfg_.motion.fast);
-    if (!moveToJoints(j))
-      return false;
-
-    seed = arm_.getCurrentPose(ee_link_);
-  }
 
   auto approach = makeApproachPose(ws, seed, a0);
   auto grasp    = makeGraspPose(ws, approach);
@@ -779,24 +517,23 @@ bool PiperGrabRotate::run()
               grasp.header.frame_id.c_str());
 
   setSpeed(cfg_.motion.fast);
-
   RCLCPP_INFO(logger_, "A) Gripper open");
   moveGripper(cfg_.gripper.open);
   std::this_thread::sleep_for(400ms);
-
+  
   RCLCPP_INFO(logger_, "1) Move to approach");
   if (!moveToPose(approach))
     return false;
 
   RCLCPP_INFO(logger_, "2) Move to grasp (slow, linear)");
   setSpeed(cfg_.motion.slow);
-  if (!moveLinear(arm_, logger_, grasp.pose,
-                  cfg_.motion.eef_step, cfg_.motion.jump_thresh, cfg_.motion.min_fraction))
+
+  if (!cartesianTo(grasp.pose, "Grasp"))
     return false;
 
   auto grasp_now = arm_.getCurrentPose(ee_link_);
-
   const double a_start = angleOnWheel(ws, grasp_now);
+
   RCLCPP_INFO(logger_, "a_start (from grasp_now) = %.3f rad (%.1f deg)",
               a_start, a_start * 180.0 / M_PI);
 
@@ -806,28 +543,11 @@ bool PiperGrabRotate::run()
 
   RCLCPP_INFO(logger_, "4) Rotate along wheel plane");
   setSpeed(cfg_.motion.slow);
-
-  bool ok = false;
-  if (cfg_.motion.cartesian)
-  {
-    ok = rotateArcCartesian(ws, grasp_now, a_start);
-    if (!ok)
-    {
-      RCLCPP_WARN(logger_, "Cartesian arc failed -> trying step arc fallback.");
-      ok = rotateArcStep(ws, grasp_now, a_start);
-    }
-  }
-  else
-  {
-    ok = rotateArcStep(ws, grasp_now, a_start);
-  }
-
-  if (!ok)
+  
+  if (!rotateArcCartesian(ws, grasp_now, a_start))
     return false;
 
-
   setSpeed(cfg_.motion.fast);
-
   RCLCPP_INFO(logger_, "5) Open gripper (release)");
   moveGripper(cfg_.gripper.open);
   std::this_thread::sleep_for(400ms);
@@ -846,8 +566,8 @@ bool PiperGrabRotate::run()
     retract.pose.position.y -= 0.10 * z.y();
     retract.pose.position.z -= 0.10 * z.z();
   }
-  if (!moveLinear(arm_, logger_, retract.pose,
-                  cfg_.motion.eef_step, cfg_.motion.jump_thresh, cfg_.motion.min_fraction))
+
+  if (!cartesianTo(retract.pose, "Retract"))
     return false;
 
   RCLCPP_INFO(logger_, "7) Return to approach");

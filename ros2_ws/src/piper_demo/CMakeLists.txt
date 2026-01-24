@@ -13,7 +13,9 @@ find_package(rclcpp_action REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(moveit_core REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -51,9 +53,12 @@ ament_target_dependencies(piper_grab_rotate_lib
   rclcpp
   geometry_msgs
   moveit_ros_planning_interface
+  moveit_core          
   tf2
+  tf2_ros              
   tf2_geometry_msgs
 )
+
 
 add_executable(piper_grab_rotate_node
   src/piper_grab_rotate_main.cpp
