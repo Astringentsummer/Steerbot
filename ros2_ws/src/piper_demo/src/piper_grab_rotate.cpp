@@ -62,6 +62,18 @@ static geometry_msgs::msg::TransformStamped makeStaticTf(
   return st;
 }
 
+static double wrapToPi(double a)
+{
+  while (a >  M_PI) a -= 2.0*M_PI;
+  while (a < -M_PI) a += 2.0*M_PI;
+  return a;
+}
+
+static double shortestAngDist(double from, double to)
+{
+  return wrapToPi(to - from);
+}
+
 PiperGrabRotate::PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg)
 : node_(std::move(node)),
   logger_(node_->get_logger()),
@@ -483,6 +495,99 @@ bool PiperGrabRotate::nudgeJoint(const std::string& joint_name, double delta_rad
   RCLCPP_INFO(logger_, "nudgeJoint: %s += %.2f deg",
               joint_name.c_str(), delta_rad * 180.0 / M_PI);
   return true;
+}
+
+bool PiperGrabRotate::holdWheelAngle(const WheelState& ws,
+  const geometry_msgs::msg::PoseStamped& grasp_ref, double a_hold)
+{
+  // Startwerte
+  const double tol_rad      = 1.0 * M_PI / 180.0;  // 1°
+  const double max_step_rad = 3.0 * M_PI / 180.0;  // max 3° per correction
+  const double rate_hz      = 30.0;
+  const double Kp           = 0.8;
+
+  rclcpp::Rate rate(rate_hz);
+  setSpeed(cfg_.motion.slow);
+
+  RCLCPP_INFO(logger_, "Holding wheel angle indefinitely (Ctrl+C to stop)");
+
+  while (rclcpp::ok())
+  {
+  auto now_pose = arm_.getCurrentPose(ee_link_);
+  const double a_now = angleOnWheel(ws, now_pose);
+
+  const double err = shortestAngDist(a_now, a_hold);
+
+  if (std::abs(err) > tol_rad)
+  {
+    double step = Kp * err;
+    step = std::min(std::max(step, -max_step_rad), max_step_rad);
+
+    const double a_target = a_now + step;
+
+    // Target point on the rim
+    const tf2::Vector3 rim = rimPoint(ws, a_target);
+
+    geometry_msgs::msg::Pose target = now_pose.pose;
+    target.position.x = rim.x() - cfg_.rim_inset * ws.n.x();
+    target.position.y = rim.y() - cfg_.rim_inset * ws.n.y();
+    target.position.z = rim.z() - cfg_.rim_inset * ws.n.z();
+
+    // Orientation relative to the grip reference
+    target.orientation = rotateQuatAroundAxisWorld(grasp_ref.pose.orientation, ws.n, (a_target - a_hold));
+
+    // Make a small correction (lower min_fraction so that it doesn't keep crashing)
+    (void)cartesianTo(target, "Hold", cfg_.motion.eef_step, cfg_.motion.jump_thresh, 0.2);
+  }
+    rate.sleep();
+  }
+
+  RCLCPP_INFO(logger_, "Hold loop exited (node shutting down)");
+  return true;
+}
+
+bool PiperGrabRotate::runHold()
+{
+  WheelState ws;
+  try {
+    ws = wheelFromTf();
+  } catch (const tf2::TransformException& e) {
+    RCLCPP_ERROR(logger_, "wheelFromTf failed: %s", e.what());
+    return false;
+  }
+
+  const double a0 = cfg_.start_angle_deg * M_PI / 180.0;
+  auto seed = arm_.getCurrentPose(ee_link_);
+
+  auto approach = makeApproachPose(ws, seed, a0);
+  auto grasp    = makeGraspPose(ws, approach);
+
+  setSpeed(cfg_.motion.fast);
+  RCLCPP_INFO(logger_, "A) Gripper open");
+  moveGripper(cfg_.gripper.open);
+  std::this_thread::sleep_for(400ms);
+
+  RCLCPP_INFO(logger_, "1) Move to approach");
+  if (!moveToPose(approach))
+    return false;
+
+  RCLCPP_INFO(logger_, "2) Move to grasp (slow, linear)");
+  setSpeed(cfg_.motion.slow);
+  if (!cartesianTo(grasp.pose, "Grasp"))
+    return false;
+
+  RCLCPP_INFO(logger_, "3) Close gripper");
+  moveGripper(cfg_.gripper.close);
+  std::this_thread::sleep_for(600ms);
+
+  // Reference after closing
+  auto grasp_ref = arm_.getCurrentPose(ee_link_);
+  const double a_hold = angleOnWheel(ws, grasp_ref);
+
+  RCLCPP_INFO(logger_, "Hold reference angle = %.3f rad (%.1f deg)",
+              a_hold, a_hold * 180.0 / M_PI);
+
+  return holdWheelAngle(ws, grasp_ref, a_hold);
 }
 
 // Main sequence: open -> approach -> grasp -> rotate -> release -> retract
