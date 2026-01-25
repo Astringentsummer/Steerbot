@@ -63,10 +63,10 @@ public:
     double radius = 0.13;
     double start_angle_deg = 90.0;
     // rotation
-    double rotate_deg = -60.0;
+    double rotate_deg = -55.0;
     int rotate_steps = 12;
 
-    double approach_offset = 0.25;
+    double approach_offset = 0.10;
     double rim_inset = 0.0;
     double tcp_local_z = 0.0;
 

@@ -397,11 +397,11 @@
       link="gripper_base" />
   </joint>
   <!-- endeffector offset -->
-  <link name="ee_offset"/>
+  <link name="ee_tcp"/>
   <joint name="ee_joint" type="fixed">
       <parent link="gripper_base"/>
-      <child link="ee_offset"/>
-      <origin xyz="0.0 0.0 0.08" rpy="0 0 0"/>
+      <child link="ee_tcp"/>
+      <origin xyz="0.0 0.0 0.10" rpy="0 0 0"/>
   </joint>
   <link
     name="link7">
@@ -458,7 +458,7 @@
     <limit
       lower="0"
       upper="0.035"
-      effort="10"
+      effort="50"
       velocity="1" />
   </joint>
   <link
@@ -508,7 +508,7 @@
     <parent link="gripper_base" />
     <child link="link8" />
     <axis xyz="0 0 -1" />
-    <limit lower="-0.035" upper="0.0" effort="10" velocity="1" />
+    <limit lower="-0.035" upper="0.0" effort="50" velocity="1" />
     <!-- <mimic joint="joint7" multiplier="-1.0" offset="0.0"/> -->
   </joint>
 
