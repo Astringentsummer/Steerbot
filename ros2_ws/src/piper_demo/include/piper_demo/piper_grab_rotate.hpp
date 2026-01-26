@@ -22,6 +22,9 @@
 #include <moveit/trajectory_processing/iterative_time_parameterization.h>
 #include <moveit/trajectory_processing/time_optimal_trajectory_generation.h>
 
+#include <sensor_msgs/msg/joint_state.hpp>
+#include <atomic>
+
 class PiperGrabRotate
 {
 public:
@@ -142,4 +145,10 @@ private:
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
+
+  // Wheel joint feedback (/wheel_states)
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr wheel_sub_;
+  std::atomic<double> wheel_pos_rad_{0.0};
+  std::atomic<bool>   wheel_pos_valid_{false};
+  std::string wheel_joint_name_ = "RevoluteJoint";
 };

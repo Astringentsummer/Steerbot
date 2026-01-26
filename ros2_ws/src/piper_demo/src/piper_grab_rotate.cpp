@@ -99,7 +99,7 @@ PiperGrabRotate::PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg)
   // Normalize static wheel quaternion once
   cfg_.wheel.q = normalizedQuat(cfg_.wheel.q);
 
-  // --- publish static TF once (world -> g29_joint_axis) ---
+  // publish static TF once (world -> g29_joint_axis)
   if (!cfg_.wheel.tf_frame.empty())
   {
     static_tf_broadcaster_->sendTransform(
@@ -112,6 +112,26 @@ PiperGrabRotate::PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg)
     RCLCPP_INFO(logger_, "Published static TF: %s -> %s",
                 cfg_.wheel.frame.c_str(), cfg_.wheel.tf_frame.c_str());
   }
+
+  //subscribe wheel joint state
+  wheel_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
+    "/wheel_states", rclcpp::SensorDataQoS(),
+    [this](const sensor_msgs::msg::JointState::SharedPtr msg)
+    {
+      for (size_t i = 0; i < msg->name.size(); ++i)
+      {
+        if (msg->name[i] == wheel_joint_name_ && i < msg->position.size())
+        {
+          wheel_pos_rad_.store(msg->position[i]);
+          wheel_pos_valid_.store(true);
+          return;
+        }
+      }
+    });
+
+  RCLCPP_INFO(logger_, "Subscribed to /wheel_states, joint='%s'",
+              wheel_joint_name_.c_str());
+
 
   RCLCPP_INFO(logger_, "Planning frame: %s", planning_frame_.c_str());
   RCLCPP_INFO(logger_, "EE link: %s", ee_link_.c_str());
@@ -498,9 +518,9 @@ bool PiperGrabRotate::nudgeJoint(const std::string& joint_name, double delta_rad
 }
 
 bool PiperGrabRotate::holdWheelAngle(const WheelState& ws,
-  const geometry_msgs::msg::PoseStamped& grasp_ref, double a_hold)
+  const geometry_msgs::msg::PoseStamped& grasp_ref, double wheel_target_rad)
 {
-  // Startwerte
+  // Controller parameters
   const double tol_rad      = 1.0 * M_PI / 180.0;  // 1°
   const double max_step_rad = 3.0 * M_PI / 180.0;  // max 3° per correction
   const double rate_hz      = 30.0;
@@ -509,36 +529,48 @@ bool PiperGrabRotate::holdWheelAngle(const WheelState& ws,
   rclcpp::Rate rate(rate_hz);
   setSpeed(cfg_.motion.slow);
 
-  RCLCPP_INFO(logger_, "Holding wheel angle indefinitely (Ctrl+C to stop)");
+  // World angle of the contact point at start (geometry reference)
+  const double a_world0 = angleOnWheel(ws, grasp_ref);
+
+  RCLCPP_INFO(logger_, "Holding wheel joint angle (target=%.3f rad). Ctrl+C to stop.",
+              wheel_target_rad);
 
   while (rclcpp::ok())
   {
-  auto now_pose = arm_.getCurrentPose(ee_link_);
-  const double a_now = angleOnWheel(ws, now_pose);
+    if (!wheel_pos_valid_.load())
+    {
+      // No /wheel_states message received yet
+      rate.sleep();
+      continue;
+    }
 
-  const double err = shortestAngDist(a_now, a_hold);
+    const double wheel_now = wheel_pos_rad_.load();
+    const double err = shortestAngDist(wheel_now, wheel_target_rad);
 
-  if (std::abs(err) > tol_rad)
-  {
-    double step = Kp * err;
-    step = std::min(std::max(step, -max_step_rad), max_step_rad);
+    if (std::abs(err) > tol_rad)
+    {
+      // Counter-rules: minus!
+      double step = -Kp * err;
+      step = std::min(std::max(step, -max_step_rad), max_step_rad);
 
-    const double a_target = a_now + step;
+      // Move the contact point on the rim accordingly
+      const double a_target_world = a_world0 + step;
 
-    // Target point on the rim
-    const tf2::Vector3 rim = rimPoint(ws, a_target);
+      const tf2::Vector3 rim = rimPoint(ws, a_target_world);
 
-    geometry_msgs::msg::Pose target = now_pose.pose;
-    target.position.x = rim.x() - cfg_.rim_inset * ws.n.x();
-    target.position.y = rim.y() - cfg_.rim_inset * ws.n.y();
-    target.position.z = rim.z() - cfg_.rim_inset * ws.n.z();
+      auto now_pose = arm_.getCurrentPose(ee_link_);
+      geometry_msgs::msg::Pose target = now_pose.pose;
 
-    // Orientation relative to the grip reference
-    target.orientation = rotateQuatAroundAxisWorld(grasp_ref.pose.orientation, ws.n, (a_target - a_hold));
+      target.position.x = rim.x() - cfg_.rim_inset * ws.n.x();
+      target.position.y = rim.y() - cfg_.rim_inset * ws.n.y();
+      target.position.z = rim.z() - cfg_.rim_inset * ws.n.z();
 
-    // Make a small correction (lower min_fraction so that it doesn't keep crashing)
-    (void)cartesianTo(target, "Hold", cfg_.motion.eef_step, cfg_.motion.jump_thresh, 0.2);
-  }
+      // Carry orientation appropriately (rotation around ws.n)
+      target.orientation = rotateQuatAroundAxisWorld(grasp_ref.pose.orientation, ws.n, (a_target_world - a_world0));
+
+      (void)cartesianTo(target, "HoldJoint", cfg_.motion.eef_step, cfg_.motion.jump_thresh, 0.2);
+    }
+
     rate.sleep();
   }
 
@@ -580,14 +612,29 @@ bool PiperGrabRotate::runHold()
   moveGripper(cfg_.gripper.close);
   std::this_thread::sleep_for(600ms);
 
-  // Reference after closing
+  {
+    rclcpp::Time t0 = node_->get_clock()->now();
+    rclcpp::Rate r(200.0); // quick short queue
+    while (rclcpp::ok() && !wheel_pos_valid_.load())
+    {
+      if ((node_->get_clock()->now() - t0).seconds() > 1.0)
+      {
+        RCLCPP_WARN(logger_, "No /wheel_states received within 1s. Using target=0.0 rad.");
+        break;
+      }
+      r.sleep();
+    }
+  }
+  // Reference after closing (pose reference for orientation)
   auto grasp_ref = arm_.getCurrentPose(ee_link_);
-  const double a_hold = angleOnWheel(ws, grasp_ref);
 
-  RCLCPP_INFO(logger_, "Hold reference angle = %.3f rad (%.1f deg)",
-              a_hold, a_hold * 180.0 / M_PI);
+  // “current angle becomes zero,” then it will maintain this value from now on.
+  const double wheel_target = wheel_pos_valid_.load() ? wheel_pos_rad_.load() : 0.0;
 
-  return holdWheelAngle(ws, grasp_ref, a_hold);
+  RCLCPP_INFO(logger_, "Hold target wheel joint = %.3f rad (%.1f deg)",
+              wheel_target, wheel_target * 180.0 / M_PI);
+
+  return holdWheelAngle(ws, grasp_ref, wheel_target);
 }
 
 // Main sequence: open -> approach -> grasp -> rotate -> release -> retract
