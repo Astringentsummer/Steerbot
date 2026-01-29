@@ -30,8 +30,10 @@ class G29PiperTask(VecEnvBase):
         self._max_episode_length = sim_config.task_config["env"]["episodeLength"]
         
         # Observation and action spaces
-        self._num_observations = 18
-        self._num_actions = 6
+        # 18 (original) + 4 (gripper pos/vel for 2 joints) = 22
+        self._num_observations = 22
+        # 6 (arm) + 1 (gripper) = 7
+        self._num_actions = 7
         
         # Reward weights
         self.distance_weight = 10.0
@@ -214,12 +216,25 @@ class G29PiperTask(VecEnvBase):
     def get_observations(self) -> dict:
         """
         Compute observations for all environments
-        Returns batched observations (num_envs x 18)
+        Returns batched observations (num_envs x 22)
         """
         # Get joint states (batched)
-        joint_positions = self.piper_arms.get_joint_positions(clone=False)  # (num_envs, 6)
-        joint_velocities = self.piper_arms.get_joint_velocities(clone=False)  # (num_envs, 6)
+        # Expecting 8 joints (6 arm + 2 gripper) from valid Piper URDF
+        all_joint_positions = self.piper_arms.get_joint_positions(clone=False)  # (num_envs, 8)
+        all_joint_velocities = self.piper_arms.get_joint_velocities(clone=False)  # (num_envs, 8)
         
+        # Verify shape (fallback if URDF only has 6 joints, though unlikely if using correct URDF)
+        if all_joint_positions.shape[1] < 8:
+             # Pad if necessary or warn? assuming correct URDF for now.
+             pass
+
+        # Split arm and gripper
+        arm_positions = all_joint_positions[:, :6]
+        gripper_positions = all_joint_positions[:, 6:8]
+        
+        arm_velocities = all_joint_velocities[:, :6]
+        gripper_velocities = all_joint_velocities[:, 6:8]
+
         # Get end-effector positions
         ee_positions, _ = self.piper_arms.get_world_poses(clone=False)  # (num_envs, 3)
         
@@ -227,11 +242,14 @@ class G29PiperTask(VecEnvBase):
         distances = torch.norm(ee_positions - self.target_positions, dim=1, keepdim=True)  # (num_envs, 1)
         
         # Concatenate observations
+        # Order: Steering(2), ArmJoints(6+6), Gripper(2+2), Target(3), Distance(1)
         self.obs_buf = torch.cat([
             self.steering_angles.unsqueeze(1),      # (num_envs, 1)
             self.steering_velocities.unsqueeze(1),  # (num_envs, 1)
-            joint_positions,                         # (num_envs, 6)
-            joint_velocities,                        # (num_envs, 6)
+            arm_positions,                           # (num_envs, 6)
+            arm_velocities,                          # (num_envs, 6)
+            gripper_positions,                       # (num_envs, 2)
+            gripper_velocities,                      # (num_envs, 2)
             self.target_positions,                   # (num_envs, 3)
             distances                                # (num_envs, 1)
         ], dim=1)
@@ -247,24 +265,52 @@ class G29PiperTask(VecEnvBase):
     def pre_physics_step(self, actions: torch.Tensor) -> None:
         """
         Apply actions before physics step
-        actions: (num_envs, 6) joint position deltas
+        actions: (num_envs, 7) joint position deltas + gripper
         """
         # Reset environments that need it
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) > 0:
             self.reset_idx(reset_env_ids)
             
+        # Split actions
+        # First 6: Arm joint deltas
+        # 7th: Gripper command (-1 to 1) -> Currently mapped to Open/Close
+        arm_actions = actions[:, :6]
+        gripper_action = actions[:, 6]
+        
         # Scale actions from [-1, 1] to actual joint deltas
-        actions_scaled = actions * 0.1  # Max 0.1 radian change per step
+        actions_scaled = arm_actions * 0.1  # Max 0.1 radian change per step
         
-        # Get current joint positions
+        # Get current joint positions (8 DOFs)
         current_positions = self.piper_arms.get_joint_positions(clone=False)
+        current_arm_pos = current_positions[:, :6]
         
-        # Compute new positions
-        new_positions = torch.clamp(
-            current_positions + actions_scaled,
+        # Compute new arm positions
+        new_arm_pos = torch.clamp(
+            current_arm_pos + actions_scaled,
             -np.pi, np.pi
         )
+        
+        # Compute gripper positions
+        # Logic: -1 (Close) -> 0.0, 1 (Open) -> 0.035
+        # Mapped to [-1, 1] input range
+        # Joint 7: 0 to 0.035
+        # Joint 8: -0.035 to 0
+        
+        # Map [-1, 1] to [0, 1]
+        gripper_cmd_norm = (gripper_action + 1.0) * 0.5
+        gripper_cmd_norm = torch.clamp(gripper_cmd_norm, 0.0, 1.0)
+        
+        # Target positions
+        target_j7 = gripper_cmd_norm * 0.035
+        target_j8 = -gripper_cmd_norm * 0.035
+        
+        # Construct full target (num_envs, 8)
+        new_positions = torch.cat([
+            new_arm_pos,
+            target_j7.unsqueeze(1),
+            target_j8.unsqueeze(1)
+        ], dim=1)
         
         # Apply to all arms
         self.piper_arms.set_joint_positions(new_positions)
@@ -298,8 +344,24 @@ class G29PiperTask(VecEnvBase):
         Returns: (num_envs,) tensor of rewards
         """
         # Get observations
-        distances = self.obs_buf[:, -1]  # Last element is distance
-        joint_velocities = self.obs_buf[:, 8:14]  # Elements 8-13 are joint velocities
+        # Index changed due to expanded obs buffer
+        # Distance is still last element.
+        distances = self.obs_buf[:, -1]
+        
+        # Velocities are now indices 16-21 (arm) and 22-23 (gripper)?
+        # Obs structure:
+        # 0: Steering Angle
+        # 1: Steering Vel
+        # 2-7: Arm Pos
+        # 8-13: Arm Vel
+        # 14-15: Gripper Pos
+        # 16-17: Gripper Vel
+        # 18-20: Target
+        # 21: Distance
+        
+        # So arm velocities are obs_buf[:, 8:14] -- Unchanged index relative to start, IF steering is first.
+        # Yes: Steering(2) + ArmPos(6) = 8. So 8 is start of ArmVel.
+        joint_velocities = self.obs_buf[:, 8:14] 
         
         # Distance penalty (want to be close to target)
         distance_reward = -self.distance_weight * (distances ** 2)
@@ -351,14 +413,15 @@ class G29PiperTask(VecEnvBase):
         self.steering_velocities[env_ids] = 0.0
         
         # Reset arm to default pose
+        # Must provide 8 values now
         init_pos = torch.tensor(
-            [0.0, -0.3, 0.5, 0.0, 0.5, 0.0],
+            [0.0, -0.3, 0.5, 0.0, 0.5, 0.0, 0.035, -0.035], # 6 arm + 2 gripper (open)
             device=self._device
         ).repeat(num_resets, 1)
         
         self.piper_arms.set_joint_positions(init_pos, indices=env_ids)
         self.piper_arms.set_joint_velocities(
-            torch.zeros((num_resets, 6), device=self._device),
+            torch.zeros((num_resets, 8), device=self._device),
             indices=env_ids
         )
         
