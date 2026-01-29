@@ -22,6 +22,9 @@
 #include <moveit/trajectory_processing/iterative_time_parameterization.h>
 #include <moveit/trajectory_processing/time_optimal_trajectory_generation.h>
 
+#include <sensor_msgs/msg/joint_state.hpp>
+#include <atomic>
+
 class PiperGrabRotate
 {
 public:
@@ -75,7 +78,12 @@ public:
   };
 
   PiperGrabRotate(rclcpp::Node::SharedPtr node, Config cfg);
+
+  // rotate-mode
   bool run();
+
+  // hold mode: grab + hold angle indefinitely until Ctrl+C / Launch stop
+  bool runHold();
 
 private:
   struct WheelState
@@ -85,6 +93,7 @@ private:
     tf2::Vector3 n;    // wheel normal (q * ẑ)
   };
 
+  // TF / Geometry
   WheelState wheelFromTf() const;
 
   tf2::Vector3 rimPoint(const WheelState& ws, double angle_rad) const;
@@ -100,21 +109,27 @@ private:
                                                       const tf2::Vector3& contact) const;
   void applyTcpLocalZ(geometry_msgs::msg::PoseStamped& p) const;
 
+  // Motion helpers
   void setSpeed(double scale);
   bool moveToPose(const geometry_msgs::msg::PoseStamped& pose);
   bool moveToJoints(const std::map<std::string, double>& joints);
   void moveGripper(const std::map<std::string, double>& target);
 
-  bool rotateArcCartesian(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_pose, double start_angle_rad);
-  
+  bool rotateArcCartesian(const WheelState& ws,
+                          const geometry_msgs::msg::PoseStamped& grasp_pose,
+                          double start_angle_rad);
+
   bool execTraj(const moveit_msgs::msg::RobotTrajectory& traj, const char* tag);
   bool cartesianTo(const geometry_msgs::msg::Pose& target, const char* tag,
                    double eef_step = -1.0, double jump_thresh = -1.0, double min_fraction = -1.0);
-  
 
-  double angleOnWheel(const WheelState& ws, const geometry_msgs::msg::PoseStamped& tcp) const;
+  double angleOnWheel(const WheelState& ws,
+                      const geometry_msgs::msg::PoseStamped& tcp) const;
+
   bool nudgeJoint(const std::string& joint_name, double delta_rad,
                   double speed_scale, bool clamp=true);
+
+  bool holdWheelAngle(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_ref, double a_hold);
 
 private:
   rclcpp::Node::SharedPtr node_;
@@ -130,4 +145,10 @@ private:
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
+
+  // Wheel joint feedback (/wheel_states)
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr wheel_sub_;
+  std::atomic<double> wheel_pos_rad_{0.0};
+  std::atomic<bool>   wheel_pos_valid_{false};
+  std::string wheel_joint_name_ = "RevoluteJoint";
 };
