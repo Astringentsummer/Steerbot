@@ -518,63 +518,58 @@ bool PiperGrabRotate::nudgeJoint(const std::string& joint_name, double delta_rad
 }
 
 bool PiperGrabRotate::holdWheelAngle(const WheelState& ws,
-  const geometry_msgs::msg::PoseStamped& grasp_ref, double wheel_target_rad)
+  const geometry_msgs::msg::PoseStamped& grasp_ref,
+  double wheel_grasp_rad,     // wheel angle at grasp time
+  double a_grasp_rad,         // rim contact angle at grasp time (your a0 / a_start)
+  double wheel_target_rad)
 {
-  // Controller parameters
-  const double tol_rad      = 1.0 * M_PI / 180.0;  // 1°
-  const double max_step_rad = 3.0 * M_PI / 180.0;  // max 3° per correction
-  const double rate_hz      = 30.0;
-  const double Kp           = 0.8;
+  const double tol_rad     = 0.5 * M_PI / 180.0; // 1.0 * M_PI / 180.0;0
+  const double rate_hz     = 20.0;
+
+  // If wrong direction: flip this sign.
+  const double s = +1.0;
 
   rclcpp::Rate rate(rate_hz);
   setSpeed(cfg_.motion.slow);
 
-  // World angle of the contact point at start (geometry reference)
-  const double a_world0 = angleOnWheel(ws, grasp_ref);
-
-  RCLCPP_INFO(logger_, "Holding wheel joint angle (target=%.3f rad). Ctrl+C to stop.",
-              wheel_target_rad);
+  RCLCPP_INFO(logger_,
+    "Hold: wheel_grasp=%.3f, a_grasp=%.3f, target=%.3f",
+    wheel_grasp_rad, a_grasp_rad, wheel_target_rad);
 
   while (rclcpp::ok())
   {
-    if (!wheel_pos_valid_.load())
-    {
-      // No /wheel_states message received yet
-      rate.sleep();
-      continue;
-    }
+    if (!wheel_pos_valid_.load()) { rate.sleep(); continue; }
 
     const double wheel_now = wheel_pos_rad_.load();
     const double err = shortestAngDist(wheel_now, wheel_target_rad);
 
     if (std::abs(err) > tol_rad)
     {
-      // Counter-rules: minus!
-      double step = -Kp * err;
-      step = std::min(std::max(step, -max_step_rad), max_step_rad);
+      // command contact point to counteract wheel error
+      const double a_cmd = a_grasp_rad + s * err;
 
-      // Move the contact point on the rim accordingly
-      const double a_target_world = a_world0 + step;
+      const tf2::Vector3 rim = rimPoint(ws, a_cmd);
 
-      const tf2::Vector3 rim = rimPoint(ws, a_target_world);
-
-      auto now_pose = arm_.getCurrentPose(ee_link_);
-      geometry_msgs::msg::Pose target = now_pose.pose;
+      geometry_msgs::msg::Pose target = arm_.getCurrentPose(ee_link_).pose;
 
       target.position.x = rim.x() - cfg_.rim_inset * ws.n.x();
       target.position.y = rim.y() - cfg_.rim_inset * ws.n.y();
       target.position.z = rim.z() - cfg_.rim_inset * ws.n.z();
 
-      // Carry orientation appropriately (rotation around ws.n)
-      target.orientation = rotateQuatAroundAxisWorld(grasp_ref.pose.orientation, ws.n, (a_target_world - a_world0));
+      target.orientation =
+        rotateQuatAroundAxisWorld(grasp_ref.pose.orientation, ws.n, (a_cmd - a_grasp_rad));
 
-      (void)cartesianTo(target, "HoldJoint", cfg_.motion.eef_step, cfg_.motion.jump_thresh, 0.2);
+      (void)cartesianTo(target, "HoldJoint",
+                        cfg_.motion.eef_step, cfg_.motion.jump_thresh, 0.2);
+
+      RCLCPP_INFO_THROTTLE(logger_, *node_->get_clock(), 500,
+        "Hold: now=%.3f tgt=%.3f err=%.3f a_cmd=%.3f",
+        wheel_now, wheel_target_rad, err, a_cmd);
     }
 
     rate.sleep();
   }
 
-  RCLCPP_INFO(logger_, "Hold loop exited (node shutting down)");
   return true;
 }
 
@@ -612,29 +607,36 @@ bool PiperGrabRotate::runHold()
   moveGripper(cfg_.gripper.close);
   std::this_thread::sleep_for(600ms);
 
+  // Wait for wheel_states
   {
     rclcpp::Time t0 = node_->get_clock()->now();
-    rclcpp::Rate r(200.0); // quick short queue
+    rclcpp::Rate r(200.0);
     while (rclcpp::ok() && !wheel_pos_valid_.load())
     {
-      if ((node_->get_clock()->now() - t0).seconds() > 1.0)
+      if ((node_->get_clock()->now() - t0).seconds() > 2.0)
       {
-        RCLCPP_WARN(logger_, "No /wheel_states received within 1s. Using target=0.0 rad.");
+        RCLCPP_WARN(logger_, "No /wheel_states received within 2s. Using target=0.0 rad.");
         break;
       }
       r.sleep();
     }
   }
-  // Reference after closing (pose reference for orientation)
+
   auto grasp_ref = arm_.getCurrentPose(ee_link_);
 
-  // “current angle becomes zero,” then it will maintain this value from now on.
-  const double wheel_target = wheel_pos_valid_.load() ? wheel_pos_rad_.load() : 0.0;
+  // wheel angle at grasp time
+  const double wheel_grasp  = wheel_pos_valid_.load() ? wheel_pos_rad_.load() : 0.0;
+
+  // we want to HOLD the current wheel angle
+  const double wheel_target = wheel_grasp;
+
+  // rim contact angle at grasp time: use your planned grasp angle
+  const double a_grasp = a0;
 
   RCLCPP_INFO(logger_, "Hold target wheel joint = %.3f rad (%.1f deg)",
               wheel_target, wheel_target * 180.0 / M_PI);
 
-  return holdWheelAngle(ws, grasp_ref, wheel_target);
+  return holdWheelAngle(ws, grasp_ref, wheel_grasp, a_grasp, wheel_target);
 }
 
 // Main sequence: open -> approach -> grasp -> rotate -> release -> retract

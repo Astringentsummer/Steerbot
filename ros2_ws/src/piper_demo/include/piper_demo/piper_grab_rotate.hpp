@@ -129,7 +129,9 @@ private:
   bool nudgeJoint(const std::string& joint_name, double delta_rad,
                   double speed_scale, bool clamp=true);
 
-  bool holdWheelAngle(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_ref, double a_hold);
+  bool holdWheelAngle(const WheelState& ws, const geometry_msgs::msg::PoseStamped& grasp_ref, double wheel_grasp_rad,
+                    double a_grasp_rad, double wheel_target_rad);
+
 
 private:
   rclcpp::Node::SharedPtr node_;
