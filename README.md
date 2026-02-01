@@ -132,7 +132,7 @@ Mit:
 - Richtige Masse/Collider
 - Stabile physikalische Basis
 
-## Branch Recovery (Option 1)
+## Branch Recovery
 If you lost files on the gripper branch, you can restore them from history:
 
 ```bash
