@@ -2,19 +2,16 @@ import os
 import yaml
 import logging
 
-class PolicyInferenceEngine:
+class KinematicControlEngine:
     """
-    MLOps Adapter: Handles the loading and execution of SAC policies.
-    Implements the 'Strategy Pattern' to switch between Heuristic and RL control.
+    Operational Controller: Deterministic Kinematic Mapping.
+    Handles the direct translation of telemetry to actuator commands.
     """
     def __init__(self, config_path="config/system_parameters.yaml"):
-        self.logger = logging.getLogger("MLOps.Inference")
+        self.logger = logging.getLogger("System.Control")
         self.config = self._load_config(config_path)
-        self.model = None
-        self.active_mode = "HEURISTIC_FALLBACK" # Default safe mode
+        self.active_mode = "DETERMINISTIC_KINEMATICS"
         
-        self._initialize_runtime()
-
     def _load_config(self, path):
         try:
             with open(path, 'r') as f:
@@ -23,35 +20,17 @@ class PolicyInferenceEngine:
             self.logger.warning(f"Config missing, using defaults: {e}")
             return {}
 
-    def _initialize_runtime(self):
-        """Attempts to load the ONNX/PyTorch model from the Registry."""
-        model_name = self.config.get("mlops", {}).get("model_name", "unknown")
-        registry_path = "model_registry"
-        
-        target_model = os.path.join(registry_path, "latest", f"{model_name}.onnx")
-        
-        if os.path.exists(target_model):
-            self.logger.info(f"Loading Production Policy: {model_name}")
-            # self.model = onnxruntime.InferenceSession(target_model)
-            self.active_mode = "NEURAL_POLICY"
-        else:
-            self.logger.warning(f"Model artifact not found at {target_model}. Reverting to Kinematic Fallback.")
-            self.active_mode = "HEURISTIC_FALLBACK"
-
-    def predict(self, observation):
+    def compute_command(self, observation):
         """
-        Standardized Inference API.
+        Standardized Control API.
         Args:
             observation (np.array): Telemetry vector [angle, velocity, torque]
         Returns:
-            action (np.array): Joint velocity commands
+            action (np.array): Joint velocity/position commands
         """
-        if self.active_mode == "NEURAL_POLICY":
-            # return self.model.run(None, {"input": observation})
-            return [0.0] * 6 # Placeholder
-        else:
-            return self._heuristic_control(observation)
+        return self._kinematic_mapping(observation)
 
-    def _heuristic_control(self, obs):
-        # Fallback logic mirroring kinematic_processor.py
-        return obs[0] * 0.2
+    def _kinematic_mapping(self, obs):
+        # Direct mathematical mapping: Input Angle -> Base Rotation
+        scaling_factor = self.config.get("kinematics", {}).get("scaling_factor", 0.2)
+        return obs[0] * scaling_factor

@@ -10,7 +10,7 @@ This project implements a high-fidelity Digital Twin of a 6-DOF robotic manipula
 ---
 
 ## System Architecture
-The platform is designed with a container-first microservices approach, fulfilling the **MLOps Level 2** maturity standard (Automated Training & Deployment).
+The platform is designed with a container-first microservices approach, fulfilling the **High-Availability Operational** maturity standard.
 
 ### 1. The Containerized Control Plane (Docker)
 - **Service:** `steerbot-control`
@@ -18,12 +18,7 @@ The platform is designed with a container-first microservices approach, fulfilli
 - **Function:** Process isolation for kinematic calculations and path planning.
 - **Deployment:** Managed via `docker-compose` with host networking.
 
-### 2. The Artifact Registry (Model Management)
-- **Path:** `model_registry/`
-- **Strategy:** Decoupled model storage versioned by semantic release tags.
-- **Serving:** Dynamic loading of policies based on `inference_config` parameters.
-
-### 3. The Perceptual Layer (Input Bridge)
+### 2. The Perceptual Layer (Input Bridge)
 - **Source:** `kinematic_processor.py`
 - **Function:** Captures HID events from the Logitech G29 interface.
 - **Output:** Publishes telemetry to ROS 2 topics (`/wheel/steering_angle`).
