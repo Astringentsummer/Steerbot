@@ -225,9 +225,10 @@ If you use this work in your research, please cite:
 ## Contact
 
 For questions or collaboration:
-- GitHub Issues: [your-repo-url]/issues
-- Email: [your-email]
+- GitHub Issues: [Astringentsummer/Steerbot](https://github.com/Astringentsummer/Steerbot/issues)
+- Email: rohit15parmar15@gmail.com
 
 ---
 
-**Note:** Training is currently in progress. Trained model will be available upon completion.
+**Note:** This repository follows a strict MLOps separation of concerns. The `training_pipeline/` generates model artifacts, which are then versioned and consumed by the `inference_interface.py` in the operational system.
+
