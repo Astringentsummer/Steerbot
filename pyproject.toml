@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "steerbot_gripper"
+version = "1.0.0"
+description = "High-Fidelity MoveIt2-Isaac Sim Integration for Robotic Steering"
+authors = [
+    {name = "Steerbot Team", email = "research@university.edu"}
+]
+dependencies = [
+    "numpy",
+    "torch",
+    "rclpy",
+    "three",
+    "pygame"
+]
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://github.com/user/steerbot-gripper"
+
+[tool.setuptools]
+packages = ["digital_twin"]

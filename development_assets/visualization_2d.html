@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steerbot-Gripper | 2D Telemetry Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --panel-bg: rgba(22, 27, 34, 0.8);
+            --accent-color: #58a6ff;
+            --text-primary: #c9d1d9;
+            --danger: #f85149;
+            --success: #3fb950;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+            height: 95vh;
+            overflow: hidden;
+        }
+
+        h1 {
+            grid-column: 1 / span 2;
+            font-family: 'Orbitron', sans-serif;
+            color: var(--accent-color);
+            margin: 0 0 10px 0;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 5px;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .panel-header {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--success);
+            display: inline-block;
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-card {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--accent-color);
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #8b949e;
+            text-transform: uppercase;
+        }
+
+        #jointChartContainer {
+            height: 100%;
+        }
+
+        .control-feed {
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            color: #3fb950;
+            background: #010409;
+            padding: 10px;
+            border-radius: 8px;
+            height: 150px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>HICTP | Telemetry Dashboard v2.0</h1>
+
+    <div class="panel">
+        <div class="panel-header">
+            <span>SYSTEM STATUS</span>
+            <span id="connection-status"><span class="status-dot"></span> CONNECTED</span>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="val-latency">8ms</div>
+                <div class="stat-label">Latency</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="val-freq">50Hz</div>
+                <div class="stat-label">Frequency</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="val-force">0.0N</div>
+                <div class="stat-label">Ext. Force</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="val-grip">0%</div>
+                <div class="stat-label">Gripper</div>
+            </div>
+        </div>
+        <div class="panel-header" style="margin-top:20px;">COMMAND LOG</div>
+        <div class="control-feed" id="log-feed">
+            [12:00:01] System Initialized<br>
+            [12:00:02] RT Kernel Active<br>
+            [12:00:03] Waiting for G29 Input...
+        </div>
+    </div>
+
+    <div class="panel" id="jointChartContainer">
+        <canvas id="jointChart"></canvas>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('jointChart').getContext('2d');
+        const jointChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''),
+                datasets: [{
+                    label: 'Joint 1 Pos',
+                    data: Array(20).fill(0),
+                    borderColor: '#58a6ff',
+                    tension: 0.3
+                }, {
+                    label: 'Joint 2 Pos',
+                    data: Array(20).fill(0),
+                    borderColor: '#3fb950',
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: false, grid: { color: '#30363d' } },
+                    x: { grid: { display: false } }
+                },
+                plugins: {
+                    legend: { labels: { color: '#c9d1d9' } }
+                }
+            }
+        });
+
+        async function updateData() {
+            try {
+                const response = await fetch('digital_twin_state.json');
+                const data = await response.json();
+
+                // Update Numeric Outputs
+                document.getElementById('val-latency').innerText = (data.latency || 0) + 'ms';
+                document.getElementById('val-force').innerText = (data.force || 0).toFixed(1) + 'N';
+                document.getElementById('val-grip').innerText = (data.gripper || 0).toFixed(0) + '%';
+
+                // Update Chart
+                jointChart.data.datasets[0].data.shift();
+                jointChart.data.datasets[0].data.push(data.joints ? data.joints[0] : 0);
+                jointChart.data.datasets[1].data.shift();
+                jointChart.data.datasets[1].data.push(data.joints ? data.joints[1] : 0);
+                jointChart.update('none');
+
+            } catch (e) {
+                console.warn("Waiting for simulation data...");
+            }
+        }
+
+        setInterval(updateData, 100);
+    </script>
+</body>
+
+</html>

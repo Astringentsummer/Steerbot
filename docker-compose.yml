@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # SERVICE: KINEMATIC CONTROL PLANE
+  # ============================================================================
+  steerbot-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: steerbot/control-plane:latest
+    container_name: steerbot_control
+    network_mode: "host" # Required for ROS 2 DDS communication with host/Isaac Sim
+    pid: "host" # Required for high-performance shared memory (optional)
+    environment:
+      - ROS_DOMAIN_ID=0
+      - ROS_LOCALHOST_ONLY=0
+    volumes:
+      - ./system_metadata.yaml:/app/bin/system_metadata.yaml
+      - /dev/input:/dev/input # Passthrough for Logitech G29 (Linux Host)
+    privileged: true # Required for hardware access (HID/USB)
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  # ============================================================================
+  # SERVICE: TELEMETRY & SIGNAL SYNTHESIS
+  # ============================================================================
+  steerbot-telemetry:
+    image: steerbot/control-plane:latest
+    container_name: steerbot_telemetry
+    network_mode: "host"
+    command: python3 signal_synthesis.py
+    depends_on:
+      - steerbot-control
+    profiles:
+      - simulation # Only run when explicitly requested via --profile simulation
+
+# ==============================================================================
+# NETWORK CONFIGURATION
+# ==============================================================================
+# Using host networking for low-latency ROS 2 DDS transport

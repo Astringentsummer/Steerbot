@@ -1,0 +1,27 @@
+# ==============================================================================
+# PROJECT METADATA & CONFIGURATION
+# ==============================================================================
+
+# Simulation Environment
+isaac_sim:
+  # Updated for WSL2 Mount Points
+  path: "/mnt/c/Users/rohit/Downloads"
+  assets:
+    piper_usd: "/mnt/c/Users/rohit/Downloads/Steerbot-Gripper/Steerbot-Gripper/dev/piper_isaac_sim/usd/piper_description.usd"
+    g29_usd: "/mnt/c/Users/rohit/Downloads/Steerbot-Gripper/Steerbot-Gripper/isaac/scenes/g29.usd"
+
+# Robot Kinematics (Metrological data)
+manipulator:
+  name: "Piper 6-DOF"
+  dof: 6
+  gripper_type: "Parallel-Jaw"
+  joint_limits:
+    velocity: 5.0
+    effort: 100.0
+
+# Communication Hub
+bridge:
+  ros_distro: "Humble (Conda)"
+  conda_env: "humble"
+  frequency_hz: 50
+  dashboard_output: "digital_twin_state.json"

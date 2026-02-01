@@ -1,10 +1,42 @@
-# Ignore Python virtual environments
-.venv/
-.venv_linux/
+# Python
 __pycache__/
-*.pyc
-# VS Code settings
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Isaac Sim
+logs/
+*.pt
+*.pth
+*.ckpt
+
+# IDE
 .vscode/
-# OS files
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Temporary files
+*.bak
+*.tmp
+*.log
+
+# Training artifacts
+CLEANUP_REPORT.txt
+cleanup_codebase.py

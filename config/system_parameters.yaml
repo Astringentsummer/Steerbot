@@ -1,0 +1,36 @@
+# ==============================================================================
+# STEERBOT: OPERATIONAL SYSTEM CONFIGURATION
+# ==============================================================================
+# "Configuration as Code" - Separating hyperparameters from execution logic.
+# ==============================================================================
+
+system:
+  environment: "operational_deployment"
+  update_rate_hz: 30
+  log_level: "INFO"
+  enable_telemetry: true
+
+hardware_bridge:
+  device_id: "046d:c24f" # Logitech G29
+  feedback_force_scale: 0.8
+  deadzone: 0.05
+  latency_compensation_ms: 15
+
+kinematics:
+  solver: "bio_ik"
+  max_velocity_rad_s: 1.5
+  max_acceleration_rad_s2: 0.8
+  joint_limits:
+    base: [-2.61, 2.61]
+    shoulder: [-1.0, 1.0]
+
+simulation:
+  physics_engine: "PhysX"
+  integration_step: 0.0166 # 60Hz
+  render_mode: "headless"
+
+mlops:
+  model_name: "sac_policy_v4"
+  model_version: "1.0.2"
+  inference_backend: "onnxruntime"
+  telemetry_export_path: "system_state_telemetry.json"

@@ -1,0 +1,46 @@
+# Version Control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ROS 2
+install/
+build/
+log/
+
+# Isaac Sim / Omniverse
+*.usd
+*.usda
+*.usdc
+isaac/
+simulation_assets/
+prototype_assets/
+
+# IDEs
+.vscode/
+.idea/
+
+# CI/CD & Docker
+docker-compose.override.yml
+.github/
+
+# Logs & Telemetry
+*.log
+*.json
+system_state_telemetry.json
+
+# System
+thumbs.db
+ehthumbs.db
+Desktop.ini
