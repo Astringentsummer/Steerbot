@@ -147,6 +147,7 @@ git checkout <commit-hash> -- path/to/file
 
 # Restore the full branch to a known good commit
 git checkout gripper
+# Warning: this discards uncommitted changes. Consider creating a backup branch first.
 git reset --hard <commit-hash>
 ```
 
