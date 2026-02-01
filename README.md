@@ -143,7 +143,7 @@ git log --oneline gripper
 git reflog show gripper
 
 # Restore a specific file from a prior commit
-git checkout <commit-hash> -- path/to/file
+git restore --source=<commit-hash> path/to/file
 
 # Restore the full branch to a known good commit
 # Warning: git reset --hard discards uncommitted changes. Consider creating a backup branch first.
