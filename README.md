@@ -146,8 +146,8 @@ git reflog show gripper
 git checkout <commit-hash> -- path/to/file
 
 # Restore the full branch to a known good commit
-git checkout gripper
 # Warning: git reset --hard discards uncommitted changes. Consider creating a backup branch first.
+git checkout gripper
 git reset --hard <commit-hash>
 ```
 
