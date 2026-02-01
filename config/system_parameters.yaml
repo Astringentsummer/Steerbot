@@ -30,7 +30,7 @@ simulation:
   render_mode: "headless"
 
 mlops:
-  model_name: "sac_policy_v4"
+  # model_name: "kinematic_v1" # Deterministic mode
   model_version: "1.0.2"
   inference_backend: "onnxruntime"
   telemetry_export_path: "system_state_telemetry.json"
