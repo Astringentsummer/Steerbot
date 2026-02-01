@@ -132,5 +132,22 @@ Mit:
 - Richtige Masse/Collider
 - Stabile physikalische Basis
 
-...
+## Branch Recovery (Option 1)
+If you lost files on the gripper branch, you can restore them from history:
 
+```bash
+# Show recent commits on the gripper branch
+git log --oneline gripper
+
+# Show recent branch movements to find the last good commit
+git reflog show gripper
+
+# Restore a specific file from a prior commit
+git checkout <commit-hash> -- path/to/file
+
+# Restore the full branch to a known good commit
+git checkout gripper
+git reset --hard <commit-hash>
+```
+
+...
